@@ -7,22 +7,32 @@ Tech stack: FastAPI · Python 3.11+ · Google Custom Search API · Trafilatura
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.core.config import settings
+from backend.core.config import Settings, settings
 from backend.discovery.schemas.requests import DiscoveryRequest
 from backend.discovery.schemas.responses import (
-    CandidateArticle,
     DiscoveryMetadata,
     DiscoveryResponse,
 )
-from backend.discovery.services.query_generator import as_config
+from backend.discovery.services.candidate_collector import (
+    CandidateCollector,
+    CollectorConfig,
+)
+from backend.discovery.services.search_orchestrator import (
+    SearchOrchestrator,
+    build_orchestrator_config,
+)
+
+logger = logging.getLogger("backend.main")
 
 
 # ---------------------------------------------------------------------------
@@ -32,14 +42,39 @@ from backend.discovery.services.query_generator import as_config
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and shutdown events."""
-    # Startup: log configuration (secrets redacted)
-    import logging
-    logger = logging.getLogger("backend.main")
     logger.info("CopyGuard Discovery Service starting — version 0.1.0")
     logger.info(f"Config (redacted): {settings.to_public_dict()}")
     yield
-    # Shutdown
     logger.info("CopyGuard Discovery Service shutting down")
+
+
+# ---------------------------------------------------------------------------
+# Dependency injection
+# ---------------------------------------------------------------------------
+
+def _build_settings() -> Settings:
+    """Return the application settings singleton."""
+    return settings
+
+
+def build_search_orchestrator(
+    settings_obj: Annotated[Settings, Depends(_build_settings)],
+) -> SearchOrchestrator:
+    """Build a SearchOrchestrator instance from settings.
+
+    The SearchOrchestrator takes providers via __init__ and the full
+    SearchOrchestratorConfig via .run(), so config building is deferred
+    to the endpoint where request options are available.
+    """
+    return SearchOrchestrator(settings_obj=settings_obj)
+
+
+def build_candidate_collector(
+    settings_obj: Annotated[Settings, Depends(_build_settings)],
+) -> CandidateCollector:
+    """Build a CandidateCollector instance from settings."""
+    cfg = CollectorConfig.from_settings(settings_obj)
+    return CandidateCollector(config=cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +88,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
@@ -67,71 +101,115 @@ app.add_middleware(
 # Discovery endpoint
 # ---------------------------------------------------------------------------
 
-@app.post("/api/v1/discover", response_model=DiscoveryResponse)
-async def discover(req: DiscoveryRequest) -> DiscoveryResponse:
+@app.post(
+    "/api/v1/discover",
+    response_model=DiscoveryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Discover suspected article copies",
+    response_description=(
+        "Ranked list of candidate articles suspected of being infringing copies "
+        "of the submitted article."
+    ),
+)
+async def discover(
+    req: DiscoveryRequest,
+    orchestrator: Annotated[SearchOrchestrator, Depends(build_search_orchestrator)],
+    collector: Annotated[CandidateCollector, Depends(build_candidate_collector)],
+) -> DiscoveryResponse:
     """
     Discover suspected pirated copies of an article.
 
     Accepts raw article text (and optionally a title or source URL),
-    generates targeted Google search queries, and returns a ranked
-    list of candidate articles suspected of being infringing copies.
+    generates targeted search queries, and returns a ranked list of
+    candidate articles suspected of being infringing copies.
     """
-    # Record timings
-    total_start = time.perf_counter()
+    total_start_ms = int(time.perf_counter() * 1000)
+    request_id = str(uuid.uuid4())
 
-    # Build query generator config from settings
-    config = as_config(
-        max_queries=settings.discovery.max_queries_per_discovery,
-        keyword_top_k=20,
+    # ── 1. Orchestrate search ─────────────────────────────────────────────
+    orchestrator_config = build_orchestrator_config(
+        settings_obj=settings,
+        max_candidates=req.options.max_candidates,
+        search_depth=req.options.search_depth,
     )
 
-    # Generate search queries
-    search_start = time.perf_counter()
-    queries = _generate_queries(req, config)
-    search_elapsed_ms = int((time.perf_counter() - search_start) * 1000)
+    try:
+        orchestrator_result = await orchestrator.run(
+            article_text=req.article_text,
+            title=req.title,
+            config=orchestrator_config,
+        )
+    except Exception as exc:
+        logger.exception("SearchOrchestrator.run() failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Search orchestration failed. Please retry.",
+        ) from exc
 
-    # TODO (Phase 3–5): Execute searches, extract content, rank candidates
-    # For now, return query list with placeholder candidates
-    extraction_elapsed_ms = 0
-    total_elapsed_ms = int((time.perf_counter() - total_start) * 1000)
+    search_time_ms = orchestrator_result.search_time_ms
+
+    # ── 2. Collect and extract candidates ─────────────────────────────────
+    extraction_time_ms = 0
+    candidates: list = []
+    queries_used = orchestrator_result.queries_used
+    total_urls_collected = orchestrator_result.total_unique_urls
+
+    if req.options.include_content:
+        try:
+            collection_result = await collector.collect(orchestrator_result)
+        except Exception as exc:
+            logger.exception("CandidateCollector.collect() failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Content extraction failed. Please retry.",
+            ) from exc
+
+        candidates = collection_result.candidates
+        extraction_time_ms = collection_result.statistics.extraction_time_ms
+        # Failures are available for logging/audit but not returned in response
+    else:
+        # include_content=False: skip extraction, return empty candidate list
+        collection_result = None
+
+    total_time_ms = int(time.perf_counter() * 1000) - total_start_ms
+
+    # ── 3. Determine overall status ────────────────────────────────────────
+    stats = collection_result.statistics if collection_result else None
+    if candidates:
+        discovery_status: str = "completed"
+    elif stats and (stats.failed_extractions > 0 or stats.empty_extractions > 0):
+        discovery_status = "partial"
+    elif total_urls_collected == 0:
+        discovery_status = "failed"
+    else:
+        discovery_status = "completed"  # no candidates but all extractions returned empty body
 
     return DiscoveryResponse(
-        request_id=str(uuid.uuid4()),
-        status="completed" if queries else "failed",
+        request_id=request_id,
+        status=discovery_status,
         original_title=req.title,
-        queries_used=queries,
-        total_urls_collected=0,
-        candidates=[],
+        queries_used=queries_used,
+        total_urls_collected=total_urls_collected,
+        candidates=candidates,
         metadata=DiscoveryMetadata(
-            total_candidates=0,
-            queries_generated=len(queries),
-            extraction_time_ms=extraction_elapsed_ms,
-            search_time_ms=search_elapsed_ms,
-            total_time_ms=total_elapsed_ms,
+            total_candidates=len(candidates),
+            queries_generated=len(queries_used),
+            extraction_time_ms=extraction_time_ms,
+            search_time_ms=search_time_ms,
+            total_time_ms=total_time_ms,
         ),
     )
-
-
-def _generate_queries(req: DiscoveryRequest, config) -> list[str]:
-    """Generate Google search queries from the discovery request."""
-    try:
-        from backend.discovery.services.query_generator import generate_queries
-        return generate_queries(
-            req.article_text,
-            config,
-            title=req.title,
-            search_depth=req.options.search_depth,
-        )
-    except Exception:
-        # Fail fast on query generation errors rather than returning partial
-        return []
 
 
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 
-@app.get("/api/v1/health")
+@app.get(
+    "/api/v1/health",
+    summary="Service health check",
+    tags=["health"],
+)
 async def health():
     """Lightweight health check returning dependency status."""
     return {
@@ -139,47 +217,67 @@ async def health():
         "version": "0.1.0",
         "service": "CopyGuard Discovery",
         "dependencies": {
-            "google_search": "configured" if settings.google.api_key else "missing_api_key",
+            "google_search": (
+                "configured"
+                if settings.google.api_key
+                else "missing_api_key"
+            ),
             "content_extraction": "ok",
         },
     }
 
 
 # ---------------------------------------------------------------------------
-# Legacy API stubs (to be migrated to dedicated services)
+# Legacy stub endpoints (to be replaced in later phases)
 # ---------------------------------------------------------------------------
-
-from pydantic import BaseModel
 
 class ScanRequest(BaseModel):
     article_text: str
 
+
 class DMCARequest(BaseModel):
     evidence_id: str
 
-@app.post("/scan")
+
+class _DMCAReportRequest(BaseModel):
+    url: str
+    evidence_id: str
+
+
+@app.post("/scan", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def start_scan(req: ScanRequest):
-    return {"id": "scan_123", "status": "started"}
+    return {"detail": "Not implemented — use POST /api/v1/discover"}
 
-@app.get("/scan/{scan_id}/progress")
+
+@app.get("/scan/{scan_id}/progress", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def scan_progress(scan_id: str):
-    return {"id": scan_id, "progress": 50, "status": "in_progress"}
+    return {"detail": "Not implemented"}
 
-@app.get("/scan/{scan_id}/candidates")
+
+@app.get("/scan/{scan_id}/candidates", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def scan_candidates(scan_id: str):
-    return {"id": scan_id, "candidates": []}
+    return {"detail": "Not implemented"}
 
-@app.get("/scan/{scan_id}/results")
+
+@app.get("/scan/{scan_id}/results", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def scan_results(scan_id: str):
-    return {"id": scan_id, "similarity_score": 0.85, "evidence": []}
+    return {"detail": "Not implemented"}
 
-@app.get("/report/{report_id}")
+
+@app.get("/report/{report_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def get_report(report_id: str):
-    return {"id": report_id, "download_url": "http://localhost:8000/reports/pdf"}
+    return {"detail": "Not implemented"}
 
-@app.post("/dmca/generate")
+
+@app.post("/dmca/generate", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 async def generate_dmca(req: DMCARequest):
-    return {"status": "success", "dmca_text": "DMCA Notice..."}
+    return {"detail": "Not implemented"}
+
+
+@app.post("/api/v1/dmca/report", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+async def create_dmca_report(req: _DMCAReportRequest):
+    """Generate a DMCA takedown report for a confirmed infringing URL."""
+    return {"detail": "Not implemented"}
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +289,16 @@ async def http_exception_handler(request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
+        headers={"X-Request-ID": request.headers.get("X-Request-ID", "")},
+    )
+
+
+@app.exception_handler(Exception)
+async def uncaught_exception_handler(request, exc: Exception):
+    logger.exception("Uncaught exception in request %s %s", request.method, request.url)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An unexpected error occurred."},
         headers={"X-Request-ID": request.headers.get("X-Request-ID", "")},
     )
 
