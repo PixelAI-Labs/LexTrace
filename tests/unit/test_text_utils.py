@@ -334,3 +334,135 @@ def test_TC11_no_global_state_mutated() -> None:
     text = "python code programming language"
     results = [extract_keywords(text, top_k=5) for _ in range(100)]
     assert len(set(tuple(r) for r in results)) == 1
+
+
+# ---------------------------------------------------------------------------
+# TC6 — extract_candidate_phrases
+# ---------------------------------------------------------------------------
+
+from backend.discovery.utils.text_utils import extract_candidate_phrases
+
+
+def test_TC6a_n_3_extracts_3_word_phrases() -> None:
+    """5-word text with n=3 produces 2 phrases (window slides 3 positions)."""
+    phrases = extract_candidate_phrases(
+        "python programming tutorial guide", n=3
+    )
+    assert phrases == [
+        "python programming tutorial",
+        "programming tutorial guide",
+    ]
+
+
+def test_TC6b_n_2_repeating_word() -> None:
+    """n=2 on 'python python python' yields one unique phrase."""
+    phrases = extract_candidate_phrases("python python python", n=2)
+    assert phrases == ["python python"]
+
+
+def test_TC6c_stopword_only_text() -> None:
+    """Text containing only stopwords returns empty list."""
+    phrases = extract_candidate_phrases("a the an of for to", n=2)
+    assert phrases == []
+
+
+def test_TC6d_too_short_for_n() -> None:
+    """Text with fewer than n words after filtering returns empty list."""
+    phrases = extract_candidate_phrases("python java", n=3)
+    assert phrases == []
+
+
+def test_TC6e_lowercase_normalized() -> None:
+    """Input is lowercased regardless of case."""
+    phrases = extract_candidate_phrases("PYTHON JAVA CODE", n=2)
+    assert "python java" in phrases
+    assert "java code" in phrases
+    # All results must be lowercase
+    assert all(p.islower() for p in phrases)
+
+
+def test_TC6f_unique_only_first_occurrence_order() -> None:
+    """Duplicates are removed; first occurrence order is preserved."""
+    # python java appears twice, java python once; both appear but in first-occ order
+    phrases = extract_candidate_phrases(
+        "python java python java", n=2
+    )
+    assert "python java" in phrases
+    assert "java python" in phrases
+    # First-occurrence order: python(java) at index 0, java(python) at index 1
+    assert phrases.index("python java") < phrases.index("java python")
+
+
+def test_TC6g_hyphenated_words_kept() -> None:
+    """Hyphen is treated as word character and kept in tokens."""
+    phrases = extract_candidate_phrases(
+        "machine-learning tutorial guide", n=2
+    )
+    assert "machine-learning tutorial" in phrases
+    assert "learning tutorial guide" in phrases
+
+
+def test_TC6h_n_1_returns_unique_words() -> None:
+    """n=1 returns each unique word (unigram) once, in first-occurrence order."""
+    phrases = extract_candidate_phrases("python java python", n=1)
+    assert phrases == ["python", "java"]
+
+
+def test_TC6i_n_zero_raises() -> None:
+    """n=0 raises ValueError."""
+    with pytest.raises(ValueError, match="n must be between 1 and 10"):
+        extract_candidate_phrases("python java", n=0)
+
+
+def test_TC6j_n_eleven_raises() -> None:
+    """n>10 raises ValueError."""
+    with pytest.raises(ValueError, match="n must be between 1 and 10"):
+        extract_candidate_phrases("python java", n=11)
+
+
+def test_TC6k_punctuation_stripped_from_ngrams() -> None:
+    """Punctuation is stripped by tokenisation, producing clean phrases."""
+    phrases = extract_candidate_phrases(
+        "hello, world! how are you?", n=2
+    )
+    assert "hello world" in phrases
+    assert "world how" in phrases
+    assert "how are" in phrases
+    assert "are you" in phrases
+    # No commas or punctuation in any phrase
+    assert all("," not in p and "!" not in p and "?" not in p for p in phrases)
+
+
+def test_TC6l_min_phrase_count_filters() -> None:
+    """min_phrase_count=2 removes phrases appearing only once."""
+    text = "python java python ruby python scala python"
+    # n=1 → unigrams; count(python)=3, others=1
+    phrases = extract_candidate_phrases(text, n=1, min_phrase_count=2)
+    assert phrases == ["python"]
+
+
+def test_TC6l_min_phrase_count_on_bigrams() -> None:
+    """min_phrase_count applies to n-gram frequency, not word count."""
+    # "python java" appears 2×, "java python" appears 1×
+    text = "python java python java ruby"
+    phrases = extract_candidate_phrases(
+        text, n=2, min_phrase_count=2
+    )
+    assert phrases == ["python java"]
+
+
+def test_TC6_empty_text() -> None:
+    """Empty string returns empty list."""
+    assert extract_candidate_phrases("") == []
+
+
+def test_TC6_whitespace_only_text() -> None:
+    """Text that is only whitespace returns empty list."""
+    assert extract_candidate_phrases("   \n\n\t") == []
+
+
+def test_TC6_preserves_non_stopwords_at_boundary() -> None:
+    """Token at start/end of text that is non-stopword is included."""
+    phrases = extract_candidate_phrases("python java ruby", n=2)
+    assert "python java" in phrases
+    assert "java ruby" in phrases

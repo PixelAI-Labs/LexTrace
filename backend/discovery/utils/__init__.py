@@ -2,6 +2,7 @@
 
 from backend.discovery.utils.text_utils import (
     clean_text,
+    extract_candidate_phrases,
     extract_keywords,
     extract_keywords_flat,
     extract_paragraphs,
@@ -14,6 +15,7 @@ from backend.discovery.utils.text_utils import (
 
 __all__ = [
     "clean_text",
+    "extract_candidate_phrases",
     "extract_keywords",
     "extract_keywords_flat",
     "extract_paragraphs",

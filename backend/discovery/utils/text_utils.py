@@ -263,6 +263,119 @@ def truncate(text: str, max_length: int = 300, suffix: str = "...") -> str:
     return _TruncatedText(truncated, max_length)
 
 
+# ---------------------------------------------------------------------------
+# Phrase extraction
+# ---------------------------------------------------------------------------
+
+def extract_candidate_phrases(
+    text: str,
+    *,
+    n: int = 3,
+    min_word_length: int = 2,
+    min_phrase_count: int = 1,
+) -> list[str]:
+    """Extract all contiguous word n-grams from *text* as candidate search phrases.
+
+    Algorithm
+    ---------
+    1. Normalise the text with :func:`normalize` (NFKC + whitespace).
+    2. Tokenise on word-boundary runs (``[^\w'-]+``), lowercase everything.
+    3. Filter out:
+       - stopwords (case-insensitive membership in ``_STOPWORDS``)
+       - tokens shorter than *min_word_length* chars
+       - pure-digit tokens
+    4. Generate ``n``-grams via a sliding window over the filtered token list.
+    5. Count occurrences with ``collections.Counter``.
+       If *min_phrase_count* > 1, drop n-grams whose count is below the threshold.
+    6. Deduplicate while preserving first-occurrence order (``dict.fromkeys``).
+    7. Return the deduplicated list as ``list[str]``.
+
+    Parameters
+    ----------
+    text:
+        Input text to extract phrases from.
+    n:
+        Phrase length in words. Must satisfy ``1 <= n <= 10``; raises
+        ``ValueError`` otherwise.
+    min_word_length:
+        Minimum character length per word in the phrase (after stripping
+        leading/trailing punctuation). Defaults to 2.
+    min_phrase_count:
+        Minimum number of times a phrase must occur to be included.
+        Defaults to 1 (all unique phrases). Raise ``ValueError`` if < 1.
+
+    Returns
+    -------
+    list[str]
+        Unique n-gram phrases in first-occurrence order. Returns ``[]`` when
+        the input yields fewer than *n* words after filtering.
+
+    Raises
+    ------
+    ValueError
+        When *n* is not in ``[1, 10]`` or *min_phrase_count* is less than 1.
+
+    Examples
+    --------
+    >>> phrases = extract_candidate_phrases(
+    ...     "python programming tutorial guide programming language"
+    ... )
+    >>> phrases  # doctest: +NORMALIZE_WHITESPACE
+    ['python programming tutorial', 'programming tutorial guide', \
+'tutorial guide programming', 'guide programming language']
+    """
+    if not (1 <= n <= 10):
+        raise ValueError(f"n must be between 1 and 10 inclusive, got {n!r}")
+    if min_phrase_count < 1:
+        raise ValueError(
+            f"min_phrase_count must be at least 1, got {min_phrase_count!r}"
+        )
+
+    # 1. Normalise input
+    normalised = normalize(text)
+
+    # 2. Tokenise and lowercase
+    raw_tokens = _WORD_BOUNDARY.split(normalised)
+    tokens: list[str] = [
+        w.strip("'- ").lower()
+        for w in raw_tokens
+        if w
+    ]
+
+    # 3. Filter stopwords, short words, pure digits
+    filtered: list[str] = [
+        w for w in tokens
+        if w not in _STOPWORDS
+        and len(w) >= min_word_length
+        and not w.isdigit()
+    ]
+
+    # 4. Not enough tokens for one window → empty
+    if len(filtered) < n:
+        return []
+
+    # 5. Generate n-grams
+    ngrams: list[str] = [
+        " ".join(filtered[i : i + n])
+        for i in range(len(filtered) - n + 1)
+    ]
+
+    # 5a. Count occurrences for threshold filtering
+    from collections import Counter
+    counts: Counter[str] = Counter(ngrams)
+
+    # 6. Apply min_phrase_count threshold
+    if min_phrase_count > 1:
+        ngrams = [ng for ng in ngrams if counts[ng] >= min_phrase_count]
+
+    # 7. Deduplicate preserving order
+    seen: dict[str, object] = {}
+    for ng in ngrams:
+        if ng not in seen:
+            seen[ng] = None
+    return list(seen.keys())
+
+
 def remove_html_tags_fast(raw_html: str) -> str:
     """Strip HTML tags only, without decoding entities or removing scripts/styles.
 
