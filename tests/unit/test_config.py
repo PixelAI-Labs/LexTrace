@@ -1,4 +1,4 @@
-"""Unit tests for copyguard.core.config.
+"""Unit tests for backend.core.config.
 
 Covers:
 - Default values load when env vars are absent (for optional fields)
@@ -18,7 +18,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from copyguard.core.config import (
+from backend.core.config import (
     AppSettings,
     ContentExtractionSettings,
     DiscoverySettings,

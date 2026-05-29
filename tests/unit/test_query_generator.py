@@ -1,4 +1,4 @@
-"""Unit tests for copyguard.discovery.services.query_generator.
+"""Unit tests for backend.discovery.services.query_generator.
 
 Covers:
 - Empty / too-short text handling
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from copyguard.discovery.services.query_generator import (
+from backend.discovery.services.query_generator import (
     QueryGeneratorConfig,
     QueryStrategy,
     as_config,
@@ -377,7 +377,7 @@ def test_TC13_strip_html_before_query_generation() -> None:
     The service trusts its inputs.
     """
     # Simulate a caller who already cleaned HTML input
-    from copyguard.discovery.utils.text_utils import clean_text, strip_html
+    from backend.discovery.utils.text_utils import clean_text, strip_html
 
     raw = "<p>Python is a programming language.</p>" * 50
     cleaned = clean_text(strip_html(raw))

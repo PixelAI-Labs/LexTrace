@@ -74,79 +74,38 @@ Discovery Service — Internal Architecture
   └──────────────────────────────────────────────────────────────────────────────┘
 2. Folder Structure
 
-copyguard/                          # Python package root
-├── backend/
-│   ├── main.py                     # ← existing stub (to be replaced)
-│   └── requirements.txt            # ← existing (to be extended)
+backend/                           # Python package root — FastAPI application
+├── main.py                       # FastAPI app entry point + legacy API stubs
+├── requirements.txt              # All Python dependencies
 │
-├── discovery/                      # ← NEW: Discovery Service
-│   │
-│   ├── __init__.py                 # Package marker (exports create_app)
-│   ├── app.py                      # FastAPI app factory + lifespan
-│   ├── config.py                   # Environment-aware config
-│   │
-│   ├── api/                        # API layer
-│   │   ├── __init__.py
-│   │   ├── routes/
-│   │   │   ├── __init__.py
-│   │   │   ├── discovery.py       # POST /discover  → main discovery endpoint
-│   │   │   └── health.py          # GET /health
-│   │   └── deps.py                 # FastAPI dependencies (config, rate limiter)
-│   │
-│   ├── schemas/                    # Pydantic models
-│   │   ├── __init__.py
-│   │   ├── requests.py             # DiscoveryRequest, etc.
-│   │   └── responses.py            # DiscoveryResponse, CandidateArticle, etc.
-│   │
-│   ├── services/                   # Business logic (framework-agnostic)
-│   │   ├── __init__.py
-│   │   ├── query_generator.py      # Generates search queries from article text
-│   │   ├── search_engine.py        # Google Custom Search API client
-│   │   ├── candidate_collector.py  # Collects & deduplicates URLs
-│   │   ├── content_extractor.py     # Fetches & extracts article content
-│   │   ├── content_normalizer.py   # Cleans and normalizes extracted text
-│   │   └── candidate_ranker.py     # Scores and ranks candidate articles
-│   │
-│   ├── infrastructure/              # External integrations
-│   │   ├── __init__.py
-│   │   ├── google_search.py        # Google API client wrapper
-│   │   └── web_scraper.py         # HTTP client + Trafilatura integration
-│   │
-│   └── utils/                      # Shared utilities
-│       ├── __init__.py
-│       ├── rate_limiter.py         # Token bucket / in-memory rate limiter
-│       └── text_utils.py           # NLP helpers (keyword extraction, etc.)
-│
-├── core/                           # ← NEW: Shared module across all services
+├── core/                         # Shared across all services
 │   ├── __init__.py
-│   ├── config.py                   # YAML/ENV config loader
-│   ├── exceptions.py               # Custom exception hierarchy
-│   ├── rate_limiter.py             # Shared rate limiter
-│   └── logging.py                  # Structured logging setup
+│   └── config.py                 # Pydantic Settings — env var configuration
 │
-├── tests/                          # ← NEW: Test suite
+├── discovery/                    # Discovery Service
 │   ├── __init__.py
-│   ├── conftest.py                 # Pytest fixtures
-│   ├── unit/
+│   │
+│   ├── schemas/                  # Pydantic models
 │   │   ├── __init__.py
-│   │   ├── test_query_generator.py
-│   │   ├── test_content_normalizer.py
-│   │   ├── test_candidate_ranker.py
-│   │   └── test_rate_limiter.py
-│   └── integration/
+│   │   ├── requests.py           # DiscoveryRequest, DiscoveryOptions
+│   │   └── responses.py          # DiscoveryResponse, CandidateArticle, etc.
+│   │
+│   ├── services/                 # Business logic (framework-agnostic)
+│   │   ├── __init__.py
+│   │   └── query_generator.py    # Generates search queries from article text
+│   │
+│   └── utils/                    # Shared utilities
 │       ├── __init__.py
-│       └── test_discovery_api.py
+│       └── text_utils.py         # Keyword extraction, HTML stripping, normalisation
 │
-├── scripts/
-│   └── seed_article.py             # Dev helper to test discovery with sample articles
-│
-├── docs/
-│   ├── discovery-service-spec.md   # ← This document
-│   └── api-contract.md             # API contract (auto-generated from schemas)
-│
-├── pyproject.toml                  # Modern Python project config
-├── .env.development.example        # Already present
-└── SPEC.md                         # Project master spec
+frontend/                         # React frontend (separate)
+tests/                            # Test suite (parallel to backend)
+├── conftest.py                   # Pytest fixtures
+└── unit/
+    ├── test_config.py
+    ├── test_schemas.py
+    ├── test_text_utils.py
+    └── test_query_generator.py
 
 3. Data Flow
 

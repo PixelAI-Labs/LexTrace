@@ -7,7 +7,7 @@ from typing import Generator
 
 import pytest
 
-from copyguard.core.config import (
+from backend.core.config import (
     AppSettings,
     ContentExtractionSettings,
     DiscoverySettings,

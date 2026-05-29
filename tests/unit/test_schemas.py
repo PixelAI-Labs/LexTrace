@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from copyguard.discovery.schemas import (
+from backend.discovery.schemas import (
     CandidateArticle,
     DiscoveryMetadata,
     DiscoveryOptions,

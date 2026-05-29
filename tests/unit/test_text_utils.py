@@ -1,4 +1,4 @@
-"""Unit tests for copyguard.discovery.utils.text_utils.
+"""Unit tests for backend.discovery.utils.text_utils.
 
 Covers: strip_html, normalize, clean_text, extract_sentences,
 extract_paragraphs, extract_keywords, extract_keywords_flat, truncate,
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from copyguard.discovery.utils.text_utils import (
+from backend.discovery.utils.text_utils import (
     clean_text,
     extract_keywords,
     extract_keywords_flat,
