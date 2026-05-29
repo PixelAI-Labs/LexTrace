@@ -162,7 +162,7 @@ Purpose: fetch discovered candidates once complete.
 
 ### Request: `DiscoveryRequest`
 - `source_id` (string, optional)
-- `article_title` (string, optional but recommended)
+- `article_title` (string, optional)
 - `article_text` (string, required)
 - `article_url` (string, optional)
 - `language` (string, default `en`)
@@ -170,6 +170,11 @@ Purpose: fetch discovered candidates once complete.
 - `max_results_per_query` (int, default 10, max 20)
 - `max_candidates` (int, default 40, max 100)
 - `include_debug` (bool, default false)
+
+Schema notes:
+- If `article_title` is missing, query generation falls back to keyphrase + entity-driven phrase queries.
+- Compute `estimated_api_calls = max_queries * ceil(max_results_per_query / 10)` to account for pagination (Google CSE returns up to 10 results per API call, so results beyond page 1 require additional calls).
+- Enforce `estimated_api_calls <= 12` by default for paid-tier mode, with a stricter configurable free-tier profile (recommended `<= 4`) to preserve daily quota.
 
 ### Response: `DiscoveryResponse`
 - `job_id` (string)
@@ -251,7 +256,7 @@ Practices:
 Layers:
 1. **Client-facing API limit** (per API key/IP): token bucket (e.g., 30 req/min).
 2. **Provider budget control**: per-minute and daily quota guards for Google CSE.
-3. **Worker concurrency caps**: max concurrent URL fetch/extract tasks per request.
+3. **Worker concurrency caps**: default max 10 concurrent URL fetch/extract tasks per request.
 4. **Circuit breaker**: if CSE errors spike, short-circuit to protect quota.
 
 Behavior:
@@ -284,12 +289,25 @@ Quality controls:
 
 ## 11) Candidate Ranking Strategy
 
-Score components (weighted sum):
+Score components (weighted sum, initial baseline tuned for title+content signal balance):
 - `title_similarity` (0.25)
 - `keyword_overlap` (0.30)
 - `entity_overlap` (0.20)
 - `phrase_match_density` (0.15)
 - `content_quality_signal` (0.10) (length, extraction confidence, boilerplate ratio)
+
+Formula:
+- Each component score is normalized to `[0.0, 1.0]`, so `final_score` is also in `[0.0, 1.0]`.
+- `final_score = 0.25*title_similarity + 0.30*keyword_overlap + 0.20*entity_overlap + 0.15*phrase_match_density + 0.10*content_quality_signal`
+
+Normalization examples:
+- `title_similarity`: cosine similarity between title embeddings.
+- `keyword_overlap`: overlap ratio (e.g., Jaccard) on normalized keyword sets.
+- `entity_overlap`: intersection-over-union on extracted entity sets.
+
+Tuning guidance:
+- Recalibrate weights using a labeled validation set and monitor precision@K/recall@K.
+- Increase `entity_overlap` weight for entity-dense domains; increase `phrase_match_density` for long-form editorial content.
 
 Post-processing:
 - Domain diversity boost to avoid one-site dominance.
@@ -327,7 +345,7 @@ Output:
 2. `feat(discovery): add API contracts and validation schemas`
 3. `feat(discovery): implement query generation engine with tests`
 4. `feat(discovery): integrate google custom search client with retry/timeout`
-5. `feat(discovery): add url canonicalization and deduplication`
+5. `feat(discovery): add URL canonicalization and deduplication`
 6. `feat(discovery): add extraction pipeline with trafilatura adapter`
 7. `feat(discovery): add text normalization and candidate ranking`
 8. `feat(discovery): implement discovery orchestrator and API endpoints`
