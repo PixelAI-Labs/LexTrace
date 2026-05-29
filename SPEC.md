@@ -1,482 +1,378 @@
-# Text Utilities — Implementation Specification
+# QueryGenerator — Implementation Specification
 
 ## Module
 
-`backend/discovery/utils/text_utils.py`
+`backend/discovery/query_generator.py`
 
 ## Package
 
-`backend.discovery.utils`
+`backend.discovery`
+
+## Context
+
+The Discovery Service receives an original article (HTML or plain text) and must produce a set of search queries that maximize the chance of finding copied or substantially similar versions of that article published elsewhere on the web.
+
+The generator is responsible for extracting distinctive content from the article and formulating it into `SearchQuery` objects suitable for any `SearchProvider` in the system.
+
+---
 
 ## Goals & Constraints
 
-- All functions are **pure** (no side effects, no file I/O, no network calls).
-- Fully typed with `pyright`/`mypy` strict mode compatibility.
-- No `sklearn` or other heavy statistical dependencies — pure Python only.
-- Every function accepts `str` → returns `str` or `list[str]` or `list[tuple[str, float]]`.
-- Deterministically produce identical output for identical input across calls.
+- All functions are **pure** (no I/O, no network calls, no side effects).
+- Fully typed — `pyright --strict` compatible.
+- Input article is raw HTML or plain text; the generator handles cleanup internally.
+- Output is `list[SearchQuery]`, ordered by predicted discovery value descending.
+- **No external APIs** — only the text utility functions defined in the same module.
+- Reproducible: identical input always produces identical output.
 
 ---
 
-## Public Functions
+## Available Text Utilities
+
+These are already implemented and must be used for content extraction:
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `normalize` | `(text: str) -> str` | Unicode NFKC + whitespace collapse |
+| `strip_html` | `(raw_html: str) -> str` | Remove markup, decode entities |
+| `extract_candidate_phrases` | `(text: str, *, n: int = 3, min_word_length: int = 2, min_phrase_count: int = 1) -> list[str]` | Multi-word phrase n-grams |
+| `extract_keywords` | `(text: str, *, top_k: int = 30, min_word_length: int = 3) -> list[tuple[str, float]]` | Frequency-ranked keywords with scores |
+| `extract_keywords_flat` | `(keywords: list[tuple[str, float]]) -> list[str]` | Keywords without scores |
 
 ---
 
-### 1. `normalize(text: str) -> str`
-
-**Responsibility:** Normalize unicode text and whitespace to a canonical form.
-
-**What it does — in order:**
-
-1. **Unicode NFKC normalization** — `unicodedata.normalize("NFKC", text)`. Decomposes compatibility characters (e.g. `"ﬁ"` → `"fi"`, `"½"` → `"1/2"`, `"ℌ"` → `"H"`), then recomposes. Ensures consistent byte representation for comparison and storage.
-
-2. **Whitespace collapse** — one-or-more consecutive whitespace characters (`\s{2,}`) replaced with a single ASCII space.
-
-3. **Trim** — leading and trailing ASCII whitespace removed.
-
-**Notes on NFKC vs NFC:** NFKC (compatibility) is chosen over NFC (canonical) because it also normalizes character width (fullwidth forms), subscripts/superscripts, and multiple representations of the same visual character (e.g. `"②"` → `"2"`). This is important for search text where users may paste mixed-width or compatibility-equivalent characters.
-
-**Input:** Any `str`, including empty string.
-**Output:** A normalized `str`, or `""` if input is empty or only whitespace.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `""` | `""` |
-| `"   "` | `""` |
-| `"café"` (U+0065 U+0301 combined) | `"café"` (composed) |
-| `"café"` (U+0065 U+0301 decomposed) | `"café"` (identical composed form) |
-| `" "` (em space) | `" "` (collapsed to single space) |
-| `" "` (non-breaking space) | `" "` (treated as whitespace) |
-| `"‐"` (hyphen) | `" "` (treated as whitespace by collapse) |
-| `"  Hello world  "` | `"Hello world"` |
-| Mixed-width: `"Ｈｅｌｌｏ"` | `"Hello"` (fullwidth → ASCII) |
-| Compatibility: `"ﬁle"` | `"file"` |
-
-**Notes for implementation:**
-- Use `re.compile(r"\s{2,}")` for the whitespace collapse regex (pre-compiled at module level as `_WS_COLLAPSE`).
-- Pre-compile `_NON_PRINTABLE` pattern (`[\x00-\x1f\x7f-\x9f]`) and optionally strip non-printable control characters too, as `strip_html` already handles this but `normalize` alone should also produce clean output.
-- NFKC normalization via `unicodedata.normalize("NFKC", text)`.
+## Public Interfaces
 
 ---
 
-### 2. `normalize_whitespace(text: str) -> str`
+### `class QueryGenerationConfig`
 
-**Responsibility:** Collapse all runs of whitespace characters to a single ASCII space and strip ends.
-
-**What it does:**
-- Identical to the whitespace-normalization step of `normalize()`.
-- Does **not** perform NFKC normalization — this is a dedicated whitespace-only function for cases where unicode content should be preserved as-is.
-
-**When to use:**
-- After extracting text from structured formats where unicode must be preserved but layout whitespace is noisy.
-- Not needed if `normalize()` is already called.
-
-**Input:** Any `str`.
-**Output:** WhitESPACE-normalized `str`.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `""` | `""` |
-| `"\n\n\n"` | `""` |
-| `"\t  hello \n world "` | `"hello world"` |
-| `"  "` (NBSP + em space) | `" "` (both whitespace, collapsed) |
-
----
-
-### 3. `strip_html(raw_html: str) -> str`
-
-**Responsibility:** Remove HTML markup, decode HTML entities, and clean control characters, producing plain text.
-
-**Existing implementation — confirmed correct.** Do not change behavior.
-
-**What it does (in order):**
-
-1. Remove block-level tags and their contents — `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<svg>`, `<math>` — via `_BLOCK_TAGS` regex with `re.DOTALL | re.IGNORECASE`.
-2. Remove all remaining HTML tags via `_HTML_TAGS` regex.
-3. Decode HTML entities (named, decimal, hex) via `_HTML_ENTITIES` regex, wrapping with spaces so adjacent entities don't merge.
-4. Normalize unicode dashes (`‐`–`―`, `−`) to ASCII space.
-5. Remove ASCII control characters (`\x00-\x1f`, `\x7f-\x9f`) via `_NON_PRINTABLE` regex.
-6. Collapse whitespace runs to single space.
-7. Strip leading/trailing whitespace.
-
-**Input:** Any `str` containing HTML, possibly mixed with plain text.
-**Output:** Plain text `str`.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `"<p>Hello</p>"` | `"Hello"` |
-| `"Hello & world"` | `"Hello & world"` |
-| `"&#65;&#x42;"` | `"AB"` |
-| `"<script>evil()</script>safe"` | `"safe"` |
-| `"\x00control"` | `"control"` |
-| Empty string | `""` |
-| Plain text (no tags) | Passed through whitespace-normalized |
-
----
-
-### 4. `extract_sentences(text: str) -> list[str]`
-
-**Responsibility:** Split natural-language prose text into individual sentences.
-
-**Existing implementation — confirmed correct.** Do not change behavior.
-
-**Algorithm:** Split on the `_SENTENCE_BOUNDARY` regex:
-
-```
-(?<=[.!?])\s+(?=[A-ZÀ-ſ一-鿿ぁ-ゔ゠-ヿ])
-```
-
-A positive lookbehind for `.` `!` `?`, followed by one-or-more whitespace, followed by an uppercase letter (ASCII A–Z, Latin extended capital, CJK, Japanese halfwidth/fullwidth katakana). This avoids splitting on abbreviations (`"e.g."` followed by lowercase `t`), decimal numbers (`"3.14"`), and ellipses.
-
-**Post-processing:** Split returns a list; trailing empty strings from the regex split are **retained** (not filtered). Callers who want to skip empty strings filter with `s for s in result if s`.
-
-**Input:** Any `str`, ideally already cleaned of HTML.
-**Output:** `list[str]` of potential sentences, in order. May contain empty strings.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `"Hello world!"` | `["Hello world!"]` |
-| `"Hello world! How are you?"` | `["Hello world!", "How are you?"]` |
-| `"No terminal punctuation"` | `["No terminal punctuation"]` |
-| `"Wait..."` | `["Wait...", ""]` (second element is empty; filter if needed) |
-| `"See e.g. the docs. It works."` | `["See e.g. the docs.", "It works."]` |
-| Empty string | `[]` |
-| `"   "` | `[]` (after normalize, input won't have this) |
-| `"Bonjour monde! Ça va? Oui."` | Correctly splits on accented capitals |
-| `"3.14 is pi."` | `["3.14 is pi."]` (no split after decimal) |
-| `"What?! Genuinely?"` | `["What?!", "Genuinely?"]` (multiple punct OK) |
-
-**Notes:** Abbreviation handling via the boundary regex is intentionally simple. Complex cases like `"Dr. Smith"` or `"U.S.A."` are not handled; they require a full NLP pipeline. This is acceptable for the Discovery Service context where article content is clean prose, not citations.
-
----
-
-### 5. `extract_paragraphs(text: str) -> list[str]`
-
-**Responsibility:** Split text into semantic paragraphs delimited by two or more consecutive newline characters.
-
-**Existing implementation — confirmed correct.** Do not change behavior.
-
-**Algorithm:**
-1. Split on `_PARAGRAPH_BOUNDARY` regex: `(?:\r?\n){2,}` (handles both `\n\n` and `\r\n\r\n`).
-2. For each block, strip leading/trailing whitespace.
-3. Discard blocks that are empty after stripping.
-4. For non-empty blocks, further split on `_SENTENCE_BOUNDARY` and append each non-empty sentence as its own paragraph entry.
-
-**Input:** Any `str`, ideally raw text with line breaks.
-**Output:** `list[str]` of paragraph sentences. Each entry is a single sentence (not multi-sentence blocks). Empty entries discarded.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `"Para one.\n\nPara two."` | `["Para one.", "Para two."]` |
-| `"A.\r\n\r\nB.\r\n\r\nC."` | `["A.", "B.", "C."]` |
-| `"A\n\n\n\nB"` | `["A", "B"]` |
-| `"\n\nSkip leading. Continue.\n\nEnd."` | `["Skip leading.", "Continue.", "End."]` |
-| Empty string | `[]` |
-| `"No breaks here just text"` | `["No breaks here just text"]` |
-
----
-
-### 6. `extract_candidate_phrases(text: str, *, n: int = 3) -> list[str]`
-
-**Responsibility:** Extract all contiguous word n-grams (phrases of length `n`) from `text` as candidate search phrases.
-
-**This function does not yet exist and must be implemented.**
-
-**Algorithm:**
-
-1. **Normalize input** — run `normalize(text)` first to ensure consistent tokenization.
-2. **Tokenize** — split on word boundaries defined as runs of non-word characters (same splitter as `extract_keywords`: `r"[^\w'-]+"`). Acquire tokens as lowercase strings.
-3. **Filter tokens** — remove stopwords (same `_STOPWORDS` set), tokens shorter than `min_word_length=2`, pure-digit tokens.
-4. **Generate n-grams** — for each window of size `n` sliding over the filtered token list, yield the tuple of `n` tokens joined by a single space.
-5. **Deduplicate** — return a list of unique phrases preserving insertion order (first occurrence order). Use a `dict.fromkeys()` pattern to deduplicate while preserving order.
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `text` | `str` | — | Input text to extract phrases from. |
-| `n` | `int` | `3` | Phrase length in words. Must be ≥ 1 and ≤ 10. |
-| `min_word_length` | `int` | `2` | Minimum character length per word in the phrase. |
-| `min_phrase_count` | `int` | `1` | If a phrase appears fewer than this many times in the text, drop it. Default 1 means accept all unique phrases. |
-
-**Input:** Any `str`; must be at least `n` words after stopword filtering.
-**Output:** `list[str]` of unique n-gram phrases, in first-occurrence order.
-
-**Edge cases:**
-
-| Input | n | Output |
-|-------|---|--------|
-| `"python programming language tutorial guide"` | 3 | `["python programming language", "programming language tutorial", "language tutorial guide"]` |
-| `"python python python"` (same word 3×) | 3 | `["python python python"]` if min_phrase_count=1 |
-| `"a the an of"` (all stopwords) | 2 | `[]` |
-| Short text fewer than n words | 3 | `[]` |
-| `text` with punctuation | 2 | `"hello, world!"` → tokenizes as `["hello", "world"]` → phrase: `"hello world"` |
-| Hyphenated words: `"machine-learning tutorial"` | 2 | `"machine-learning tutorial"` (hyphen in `\w` range kept) |
-
-**Return type annotation:** `-> list[str]`
-
-**Example doctest:**
-```python
->>> phrases = extract_candidate_phrases("python programming tutorial guide programming language")
->>> phrases
-['python programming tutorial', 'programming tutorial guide', 'tutorial guide programming', 'guide programming language']
-```
-
-**Notes for implementation:**
-- Pre-compile the word-boundary regex at module level (`_PHRASE_WORD_BOUNDARY = re.compile(r"[^\w'-]+")` — reuse `_WORD_BOUNDARY`).
-- Handle `n <= 0` or `n > 10` by raising `ValueError` with a descriptive message.
-- For `min_phrase_count > 1`, count occurrences using `collections.Counter` over all n-grams.
-- Empty input or input that yields no phrases returns `[]`.
-
----
-
-### 7. `extract_keywords(text: str, *, top_k: int = 30, min_word_length: int = 3) -> list[tuple[str, float]]`
-
-**Responsibility:** Extract the top-k most frequent terms from text, ranked by normalized term frequency.
-
-**Existing implementation — confirmed correct.** Do not change behavior.
-
-**Algorithm:**
-
-1. Tokenize: split on `r"[^\w'-]+"`, lowercase all tokens.
-2. Filter: drop stopwords (case-insensitive membership test in `_STOPWORDS` frozenset), tokens shorter than `min_word_length`, pure-digit tokens.
-3. Frequency: `collections.Counter` over filtered tokens.
-4. Score: `score = count / max_count` for each word (normalized to [0.0, 1.0] by max term frequency).
-5. Sort descending by score, return top-k as `list[tuple[str, float]]`.
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `text` | `str` | — | Input text |
-| `top_k` | `int` | `30` | Maximum keywords to return. Must be ≥ 1. |
-| `min_word_length` | `int` | `3` | Minimum character length per word. Must be ≥ 1. |
-
-**Input:** Any `str`.
-**Output:** `list[tuple[str, float]]` sorted by score descending, `score ∈ [0.0, 1.0]`. Empty list if no keywords found.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `""` | `[]` |
-| `"a the an is was were"` (all stopwords) | `[]` |
-| `"python 123 python"` | `[("python", 1.0)]` (digits filtered) |
-| Word appearing once | Score 1.0 (max_freq = 1, so normalized = 1.0) |
-| `top_k=0` | Raise `ValueError` |
-| All scores equal | Return in insertion order (sorted stableness) |
-
----
-
-### 8. `extract_keywords_flat(keywords: list[tuple[str, float]]) -> list[str]`
-
-**Responsibility:** Convert a `extract_keywords` output (`list[tuple[str, float]]`) into a flat sorted list of keyword strings.
-
-**Existing implementation — confirmed correct.** Do not change behavior.
-
-**Algorithm:** Sort the tuples by score descending, return only the keyword string from each tuple.
-
-**Edge cases:**
-
-| Input | Output |
-|-------|--------|
-| `[("python", 1.0), ("rust", 0.4), ("go", 0.7)]` | `["python", "go", "rust"]` |
-| `[]` | `[]` |
-
----
-
-## Module-Level Constants (Implementation参考)
-
-These constants already exist in the module. They are listed here for completeness and must be preserved:
+Immutable configuration for the generator. All values come from `settings.discovery` or reasonable defaults.
 
 ```python
-_NON_PRINTABLE: Final[re.Pattern[str]]     # ASCII control chars [\x00-\x1f\x7f-\x9f]
-_WS_COLLAPSE: Final[re.Pattern[str]]       # Two+ whitespace [\s]{2,}
-_BLOCK_TAGS: Final[re.Pattern[str]]        # script/style/iframe/noscript SVG/math + contents
-_HTML_TAGS: Final[re.Pattern[str]]         # All HTML tags
-_HTML_ENTITIES: Final[re.Pattern[str]]    # Named, decimal, hex entities
-_SENTENCE_BOUNDARY: Final[re.Pattern[str]] # (?<=[.!?])\s+(?=[A-ZÀ-ſ一-鿿])
-_PARAGRAPH_BOUNDARY: Final[re.Pattern[str]] # (?:\r?\n){2,}
-_STOPWORDS: Final[frozenset[str]]          # ~100 common English stopwords
-_WORD_BOUNDARY: Final[re.Pattern[str]]      # [^\w']+
+from dataclasses import dataclass
+
+@dataclass(frozen=True, slots=True)
+class QueryGenerationConfig:
+    max_queries: int                      # Max SearchQuery objects to return  (default: 8)
+    phrase_query_count: int               # Target exact-phrase queries         (default: 5)
+    keyword_query_count: int              # Target keyword-combination queries  (default: 3)
+    phrase_lengths: tuple[int, int, int]  # (min, default, max) n for phrases  (default: (2, 3, 4))
+    min_word_length: int                  # Min word chars in extracted tokens (default: 3)
+    min_phrase_freq: int                  # Min raw occurrence count per phrase (default: 1)
+    include_exact_title: bool             # Add full title as exact-match query  (default: True)
+    include_short_phrases: bool           # Allow n=2 phrase queries             (default: True)
+    keyword_top_k: int                   # Keywords to extract for KW queries   (default: 20)
 ```
 
-**Note:** `_STOPWORDS` is lowercase. Stopword filtering must be case-insensitive — implement as `if w.lower() not in _STOPWORDS`.
+**Validation:** Raises `ValueError` if `max_queries < 1`, `phrase_lengths` values are not `1 ≤ min ≤ default ≤ max ≤ 10`, or `min_word_length < 1`.
 
----
-
-## Exports (`__init__.py`)
-
-`backend/discovery/utils/__init__.py` should export all public functions:
+**Construction:**
 
 ```python
-"""Text processing utilities for the Discovery Service."""
-from backend.discovery.utils.text_utils import (
-    clean_text,           # alias of normalize
-    extract_candidate_phrases,
-    extract_keywords,
-    extract_keywords_flat,
-    extract_paragraphs,
-    extract_sentences,
-    normalize,
-    normalize_whitespace,
-    strip_html,
-    truncate,
-    remove_html_tags_fast,
-)
+# Default — reads from settings.discovery
+config = QueryGenerationConfig.from_settings()
 
-__all__ = [
-    "clean_text",
-    "extract_candidate_phrases",
-    "extract_keywords",
-    "extract_keywords_flat",
-    "extract_paragraphs",
-    "extract_sentences",
-    "normalize",
-    "normalize_whitespace",
-    "strip_html",
-    "truncate",
-    "remove_html_tags_fast",
-]
+# Override one or more fields
+config = QueryGenerationConfig(max_queries=12, phrase_query_count=7, keyword_query_count=5)
 ```
 
 ---
 
-## Test Cases
+### `class QueryGenerator`
 
-### TC1 — `normalize`
+The main public class. Receives an article and produces ranked search queries.
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC1a | Collapse multiple spaces | `"Hello    world"` | `"Hello world"` |
-| TC1b | Collapse tabs/newlines | `"a\t\n\n\tb"` | `"a b"` |
-| TC1c | Strip leading/trailing | `"  hello  "` | `"hello"` |
-| TC1d | NFKC normalization composes combined chars | `"café"` (combined U+00E9) | `"café"` (unchanged) |
-| TC1e | NFKC fullwidth to ASCII | `"ＨＥＬＬＯ"` | `"HELLO"` |
-| TC1f | NFKC subscripts | `"H₂O"` | `"H2O"` |
-| TC1g | Empty string | `""` | `""` |
-| TC1h | Only whitespace | `"   \n\t  "` | `""` |
-| TC1i | Already clean | `"hello world"` | `"hello world"` |
-| TC1j | NFKC compat: ﬁ → fi | `"ﬁle"` | `"file"` |
+```python
+from dataclasses import dataclass
 
-### TC2 — `normalize_whitespace`
+class QueryGenerator:
+    __slots__ = ("_cfg",)
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC2a | Collapse spaces | `"a    b"` | `"a b"` |
-| TC2b | Collapse tabs | `"a\t\tb"` | `"a b"` |
-| TC2c | Does NOT NFKC normalize | `"ＨＥＬＬＯ"` | `"ＨＥＬＬＯ"` |
-| TC2d | Empty string | `""` | `""` |
+    def __init__(self, config: QueryGenerationConfig | None = None) -> None:
+        """Create a generator. Pass a custom config or use the default."""
+        ...
 
-### TC3 — `strip_html`
+    def generate(
+        self,
+        article_text: str,
+        *,
+        title: str | None = None,
+        language: SearchLanguage | None = None,
+        strip_html_first: bool = True,
+    ) -> list[SearchQuery]:
+        """Generate ranked search queries from an article.
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC3a | Remove basic tags | `"<p>Hello</p>"` | `"Hello"` |
-| TC3b | Remove script + contents | `"<script>evil()</script>safe"` | `"safe"` |
-| TC3c | Remove style + contents | `"<style>.cls{}</style>text"` | `"text"` |
-| TC3d | Decode `&` entity | `"Hello & world"` | `"Hello & world"` |
-| TC3e | Decode `&#65;` decimal | `"&#65;"` | `"A"` |
-| TC3f | Decode `&#x41;` hex | `"&#x41;"` | `"A"` |
-| TC3g | Remove SVG with attributes | `"<svg onload=alert(1)>oops</svg>safe"` | `"safe"` |
-| TC3h | Remove control chars | `"\x00\x07text"` | `"text"` |
-| TC3i | Preserve spaces | `"<p>Hello   World</p>"` | Contains `" "` |
-| TC3j | Preserve `&` not entity | `"& <tag>"` | `"& <tag>"` |
+        Parameters
+        ----------
+        article_text:
+            Raw article content (HTML or plain text).Cleaned internally.
+        title:
+            Optional article title. Used for exact-match title queries if set.
+        language:
+            Optional ISO 639-1 language code for the SearchQuery objects.
+            Inferred from article structure if not provided.
+        strip_html_first:
+            If True (default), run strip_html() before extraction.
+            Set False if article_text is already plain text.
 
-### TC4 — `extract_sentences`
+        Returns
+        -------
+        list[SearchQuery]
+            Ordered by predicted discovery value descending.
+            Never empty — keyword fallback always produces at least one query.
+        """
+        ...
+```
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC4a | Simple split | `"Hello world! How are you?"` | `["Hello world!", "How are you?"]` |
-| TC4b | No punctuation | `"No punctuation here"` | `["No punctuation here"]` |
-| TC4c | Ellipsis at end produces empty 2nd element | `"Wait..."` | `["Wait...", ""]` |
-| TC4d | e.g. not split | `"See e.g. the docs. It works."` | 2 elements, `"e.g."` not split |
-| TC4e | CJK capitalization | `"Bonjour monde! Ça va?"` | Includes `"Ça va?"` |
-| TC4f | Decimal numbers | `"Pi is 3.14."` | `["Pi is 3.14."]` |
-| TC4g | Empty input | `""` | `[]` |
-| TC4h | Multi-punctuation | `"What?! Genuinely?"` | `["What?!", "Genuinely?"]` |
+**Guarantees:**
+- Result is never empty; if extraction fails it falls back to a keyword-only query from the raw input.
+- All queries have valid `query` strings 1–500 characters.
+- `max_queries` is never exceeded.
+- Exact-duplicate queries (identical `query` string) are never returned.
 
-### TC5 — `extract_paragraphs`
+---
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC5a | Double newline split | `"A.\n\nB.\n\nC."` | `["A.", "B.", "C."]` |
-| TC5b | CRLF double newline | `"A.\r\n\r\nB."` | `["A.", "B."]` |
-| TC5c | Triple newlines | `"A\n\n\nB"` | `["A", "B"]` |
-| TC5d | Skip leading blank | `"\n\nSkip. Continue.\n\nEnd."` | includes `"Skip."` |
-| TC5e | Empty input | `""` | `[]` |
-| TC5f | No newlines, one sentence | `"Single paragraph."` | `["Single paragraph."]` |
+### `class ScoredQuery`
 
-### TC6 — `extract_candidate_phrases` (NEW — must be implemented)
+Internal intermediate type used during ranking. Not public API.
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC6a | 3-word phrases from 5-word text | `text="python programming tutorial guide"`, `n=3` | `["python programming tutorial", "programming tutorial guide"]` |
-| TC6b | 2-word phrases | `text="python python python"`, `n=2` | `["python python"]` |
-| TC6c | Stopword-only text | `text="a the an of"`, `n=2` | `[]` |
-| TC6d | Too short for n | `text="python java"`, `n=3` | `[]` |
-| TC6e | Lowercase normalized | `text="PYTHON JAVA CODE"`, `n=2` | `["python java", "java code"]` |
-| TC6f | Unique only | `text="python java python java"`, `n=2` | `["python java", "java python"]` (first-occ order) |
-| TC6g | Hyphenated words | `text="machine-learning tutorial guide"`, `n=2` | `["machine-learning tutorial", "learning tutorial guide"]` |
-| TC6h | n=1 returns unique words | `text="python java python"`, `n=1` | `["python", "java"]` |
-| TC6i | n out of bounds LOW | `n=0` | raises `ValueError` |
-| TC6j | n out of bounds HIGH | `n=11` | raises `ValueError` |
-| TC6k | Punctuation stripped | `text="hello, world! how are you?"`, `n=2` | `["hello world", "world how", "how are", "are you"]` |
-| TC6l | min_phrase_count=2 filtering | `text="python java python ruby python scala python"`, `n=1`, `min_phrase_count=2` | `["python", "java"]` (python=3, java=1, ruby=1, scala=1 → only python qualifies with count>=2) |
+```python
+@dataclass
+class ScoredQuery:
+    query_text: str
+    score: float          # Higher = more distinctive for discovery
+    is_exact_phrase: bool
+    is_title_query: bool
+    is_keyword_query: bool
+    source_phrase: str | None   # If generated from a specific phrase
+```
 
-*Correction for TC6l:* `min_phrase_count=2` filters by raw term frequency across the whole text, not by n-gram occurrence count. For `n=1`, phrases are individual words. For `text="python java python ruby python scala python"`:
-- count("python")=3, count("java")=1, count("ruby")=1, count("scala")=1
-- With `min_phrase_count=2`: only `"python"` passes
+---
 
-### TC7 — `extract_keywords`
+## Data Flow
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC7a | Basic top-k | `text="python python python java code"`, `top_k=2` | `[("python", 1.0), ("java", 0.something < 1.0)]` — python first |
-| TC7b | Stopwords excluded | `text="the python the language the"`, `top_k=5` | No stopwords in result |
-| TC7c | Score monotonic descending | `text="python python python"` | `score == 1.0` for the word |
-| TC7d | Scores in [0,1] | any normal text | `all(0.0 <= s <= 1.0)` |
-| TC7e | Empty text | `""` | `[]` |
-| TC7f | All stopwords | `"a the an is was were"` | `[]` |
-| TC7g | Digits filtered | `text="python 123 python 456"`, `min_word_length=3` | Only `"python"` |
-| TC7h | `top_k=1` | any text | list of length ≤ 1 |
-| TC7i | `top_k=0` | any text | raises `ValueError` |
-| TC7j | `min_word_length=5` | `text="a python an algorithm"` | no 1-2 char results |
+```
+article_text (raw HTML or plain)
+        │
+        ▼
+    strip_html()          (if strip_html_first=True)
+        │
+        ▼
+    normalize()            Unicode + whitespace cleanup
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  EXTRACTION PHASE                       │
+  ├─────────────────────────────────────────┤
+  │  extract_candidate_phrases(text, n=2)   │──► List[str]  n=2 phrases
+  │  extract_candidate_phrases(text, n=3)   │──► List[str]  n=3 phrases
+  │  extract_candidate_phrases(text, n=4)   │──► List[str]  n=4 phrases
+  │  extract_keywords(text, top_k=20)       │──► List[tuple[str, float]]
+  │  optional: extract_keywords_flat()        │──► List[str]  top keywords
+  └─────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  CANDIDATE QUERY BUILDING               │
+  ├─────────────────────────────────────────┤
+  │  Phrase candidates                      │
+  │    → wrapped in quotes:   "python tutorial guide"
+  │    → min_phrase_freq filter applied    │
+  │  Keyword candidates                     │
+  │    → top-k keywords joined: "python tutorial java"
+  │    → word count capped at 5 tokens      │
+  │  Title candidate (if title provided)    │
+  │    → normalized title as exact: "Full Article Title"
+  │    → title noun/keyword subset for KW: title words top-k
+  └─────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  SCORING & RANKING PHASE                │
+  ├─────────────────────────────────────────┤
+  │  score = phrase_length_weight            │
+  │        × frequency_weight               │
+  │        × distinctiveness_penalty        │
+  │  where:                                 │
+  │    phrase_length_weight = len(words) / 5 capped at [1.0, 2.0]
+  │    frequency_weight     = min(raw_count / 3, 1.5)      │
+  │    distinctiveness_penalty = 1.0 if not_overly_common │
+  │  Title query receives +0.5 bonus.        │
+  │  Keyword-only queries receive -0.3 penalty. │
+  └─────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  DEDUPLICATION                          │
+  ├─────────────────────────────────────────┤
+  │  Tokenize each candidate query           │
+  │  For each new candidate:                │
+  │    If JS divergence < 0.3 to existing →  │
+  │       skip (prefer higher-scored one)   │
+  │  Otherwise keep.                        │
+  │  Also skip exact string duplicates.       │
+  └─────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  SELECTION & OUTPUT                      │
+  ├─────────────────────────────────────────┤
+  │  Sort by score descending.              │
+  │  Take top max_queries items.            │
+  │  Ensure minimum 1 kw query if possible.  │
+  │  Wrap each in SearchQuery().             │
+  │  Return list[SearchQuery].               │
+  └─────────────────────────────────────────┘
+```
 
-### TC8 — `extract_keywords_flat`
+---
 
-| ID | Description | Input | Expected |
-|----|-------------|-------|----------|
-| TC8a | Basic | `[("python", 1.0), ("rust", 0.4), ("go", 0.7)]` | `["python", "go", "rust"]` |
-| TC8b | Empty | `[]` | `[]` |
-| TC8c | Single element | `[("python", 1.0)]` | `["python"]` |
+## Query Generation Strategy
 
-### TC9 — Pipeline Integration
+### Phrase queries (exact-match)
 
-| ID | Description |
-|----|-------------|
-| TC9a | `normalize(strip_html(html_text))` → clean plain text |
-| TC9b | `extract_sentences(normalize(strip_html(html_text)))` → sentence list from HTML |
-| TC9c | `extract_keywords(normalize(strip_html(html_text)), top_k=10)` → top keywords from HTML |
-| TC9d | `extract_candidate_phrases(normalize(strip_html(html_text)), n=3, min_phrase_count=2)` → phrases appearing ≥ 2 times from HTML |
-| TC9e | `extract_paragraphs(strip_html(raw))` → paragraph list from HTML |
+The most important query type for plagiarism discovery. Longer phrases are more distinctive and return fewer false positives.
 
-### TC10 — Determinism
+1. Extract n-grams at `n ∈ {2, 3, 4}` simultaneously (in a single pass over tokens for efficiency).
+2. Run `min_phrase_freq` filter: only keep phrases occurring at least `n` times in the source text.
+3. Wrap each surviving phrase in double quotes to form a phrase query: `"python programming tutorial"`.
+4. Score by length + frequency (see Scoring below).
 
-| ID | Description |
-|----|-------------|
-| TC10a | Calling any function twice on same input returns identical output |
-| TC10b | Calling any function 100 times returns identical result each call (no global state mutation) |
+**Why n=2,3,4?**
+- `n=1` (single words) → too generic, excluded.
+- `n=2` (bigrams) → catch partial copies and rewrites.
+- `n=3` (trigrams) → strong indicator of verbatim copy.
+- `n=4+` → very distinctive but rare in short articles; include but deprioritize if frequency is low.
+
+**Phrase query distribution:** Aim for roughly 60% of `max_queries` as phrase queries, capped at `phrase_query_count`.
+
+### Keyword combination queries
+
+For broad recall when phrase matches are too specific or unavailable.
+
+1. Extract top-k keywords via `extract_keywords`.
+2. Group top keywords in sets of 3–5 tokens: `"python tutorial guide"`.
+3. These queries are *not* quoted — they are general search queries.
+4. Receive a score penalty vs phrase queries.
+
+**Why not just keywords?**
+- Keyword-only queries return too many results, making it hard to identify copied content.
+- Phrase queries narrow results dramatically (exact-match semantics).
+- A mix of both maximizes recall × precision.
+
+### Title query (if title provided)
+
+The article title is the most authoritative phrase in the document. It receives the highest score.
+
+1. `normalize(title)` → if non-empty, add as exact-match phrase query `"normalized title"`.
+2. Also extract keywords from the title alone (ignore stopwords) and use in keyword combinations.
+
+---
+
+## Ranking Strategy
+
+### Scoring formula
+
+For a candidate query `q`:
+
+```
+base_score = len(words_in_q) / 5.0          # longer = better (normalized)
+
+freq_score = min(phrase_raw_count(q) / 3.0, 1.5)  # more occurrences = more confident
+
+bonus = +0.5  if is_title_query
+bonus = -0.3  if is_keyword_query (not phrase)
+
+raw_score = (base_score * freq_score) + bonus
+```
+
+`raw_score` is clamped to `[0.0, 3.0]` and used for sorting.
+
+**Why this formula?**
+- Longer phrases are exponentially more distinctive. A 5-word phrase is much harder to match accidentally than a 2-word phrase.
+- Frequency matters: a phrase appearing 5 times in an article is more likely to be a key concept than a phrase appearing once.
+- Title bonus: the article title is authored by the original creator — it's the strongest signal.
+- Keyword penalty: unquoted keyword queries have lower precision, so they're ranked below phrase queries.
+
+### Dedup strategy
+
+Use **Jaccard similarity on token sets** to detect near-duplicate queries.
+
+```
+jaccard(tokens_a, tokens_b) = |set_a ∩ set_b| / |set_a ∪ set_b|
+```
+
+- If `jaccard(tokens_new, tokens_any_existing) > 0.7` → skip `new` (keep the one with higher score).
+- After filtering, if fewer than `phrase_query_count` phrase queries remain, backfill from shorter-n candidates.
+
+---
+
+## QueryConstruction Helpers
+
+### `def _build_exact_phrase_queries(phrases: list[str]) -> list[ScoredQuery]`
+
+Wrap each phrase in double quotes. Assign `is_exact_phrase=True`, `is_title_query=False`.
+
+### `def _build_title_query(title: str) -> ScoredQuery | None`
+
+If `normalize(title)` is non-empty and `len(words) >= 2`, return a `ScoredQuery` with `is_title_query=True` and `+0.5` bonus.
+
+### `def _build_keyword_queries(keywords: list[str], top_k: int = 20) -> list[ScoredQuery]`
+
+Partition `keywords[:top_k]` into groups of 3–5 consecutive keywords (preserve order). Join with single space (no quotes). Set `is_keyword_query=True` and apply the keyword penalty.
+
+### `def _score_candidates(candidates: list[ScoredQuery]) -> list[ScoredQuery]`
+
+Apply the scoring formula to all candidates. Sort descending by `raw_score`.
+
+### `def _deduplicate(candidates: list[ScoredQuery], threshold: float = 0.7) -> list[ScoredQuery]`
+
+Tokenize each candidate's query string. For each new candidate, if Jaccard similarity with any higher-scored existing candidate exceeds `threshold`, skip it. Otherwise keep.
+
+### `def _build_search_query(scored: ScoredQuery, *, language: SearchLanguage | None, max_results: int = 10) -> SearchQuery`
+
+Wrap `scored.query_text` in a `SearchQuery`. Set `max_results=max_results`, `language=language`, `result_type=ResultType.WEB`, `safe_search=SafeSearchLevel.MODERATE`.
+
+---
+
+## Configuration Requirements
+
+The `QueryGenerationConfig` is derived from `settings.discovery` with the following defaults:
+
+| Config field | Source | Default | Fallback if missing |
+|---|---|---|---|
+| `max_queries` | `DISCOVERY_MAX_QUERIES_PER_DISCOVERY` | `8` | `8` |
+| `phrase_query_count` | — | `5` | `max_queries * 0.6` |
+| `keyword_query_count` | — | `3` | `max_queries * 0.4` |
+| `phrase_lengths` | — | `(2, 3, 4)` | — |
+
+**If `settings.discovery` is inaccessible at runtime**, fall back to hardcoded defaults.
+
+**Environment variables** (processed via `settings.discovery`):
+
+| Variable | Type | Default | Effect |
+|---|---|---|---|
+| `DISCOVERY_MAX_QUERIES_PER_DISCOVERY` | `int 1–20` | `8` | Hard cap on returned `SearchQuery` count |
+| `DISCOVERY_DEFAULT_MAX_CANDIDATES` | `int 1–50` | `20` | Reserved for future discovery orchestration |
+| `DISCOVERY_DEFAULT_SEARCH_DEPTH` | `str` | `"shallow"` | Ignored by QueryGenerator |
+
+---
+
+## Edge Cases
+
+| Case | Handling |
+|------|----------|
+| Empty article text | Return a single `SearchQuery` with the raw text as the query (if non-empty) or `"copy"` as fallback keyword query |
+| All-stopwords text | Fall back to keyword extraction without stopword filter (bypass stopword list for this input only) |
+| Very short article (<10 words) | Skip `n=4` extraction; generate queries from whatever keywords remain; return up to 3 queries |
+| `title` is empty string | Skip title query; treat article as untitled |
+| Title equals article text | Deduplicate; avoid returning the same query twice |
+| `extract_keywords` returns empty | Generate a "copy" or "blog" keyword fallback query; never return empty list |
+| Single candidate phrase only | Return it as an exact-phrase query (if `max_queries >= 1`) |
+| `max_queries = 1` | Return only the top-ranked query (likely the title or longest phrase) |
+| Phrase appears only once | Exclude if `min_phrase_freq > 1`; include if `min_phrase_freq == 1` |
+| Very long title (>50 words) | Truncate to 50 words, then normalize and use |
 
 ---
 
@@ -484,32 +380,524 @@ __all__ = [
 
 ### Functional
 
-- [ ] `normalize()` applies NFKC normalization, collapses whitespace, strips ends
-- [ ] `normalize_whitespace()` only collapses whitespace — does NOT alter unicode characters
-- [ ] `strip_html()` removes all HTML tags, decodes all entity types, removes control chars
-- [ ] `extract_sentences()` splits on `.` `!` `?` before uppercase, not on `e.g.` or decimals
-- [ ] `extract_paragraphs()` splits on `\n\n` or `\r\n\r\n`, discards empty, returns single sentences
-- [ ] `extract_candidate_phrases()` returns ordered unique n-grams, lowercased, stopwords removed
-- [ ] `extract_keywords()` returns `list[tuple[str, float]]` sorted by score descending, scores in [0,1]
-- [ ] `extract_keywords_flat()` converts keyword tuples to sorted strings
-- [ ] All functions are pure — identical input always yields identical output
+- [ ] `QueryGenerator.generate(article_text)` returns `list[SearchQuery]`
+- [ ] Result is ordered by descending discovery value
+- [ ] Result length never exceeds `config.max_queries`
+- [ ] Result is never empty (keyword fallback always yields at least one query)
+- [ ] All stopword-only text returns keyword-fallback query (never empty)
+- [ ] Exact-match phrase queries are wrapped in double quotes in the `query` string
+- [ ] `title` is included as an exact-match phrase query when provided
+- [ ] `language`, `result_type`, `safe_search` fields are populated in every returned `SearchQuery`
+- [ ] Identical `query` strings are never duplicated in the result list
+- [ ] Near-duplicate queries (Jaccard > 0.7) are deduplicated
+
+### Scoring
+
+- [ ] Title query is always ranked first if it exists
+- [ ] Longer phrase queries are ranked above shorter ones (all else equal)
+- [ ] Keyword-only queries are always ranked below phrase queries
+- [ ] Phrases occurring once are still included (with low score) when `min_phrase_freq=1`
+
+### Configuration
+
+- [ ] `QueryGenerationConfig.from_settings()` reads from `settings.discovery`
+- [ ] Constructor accepts `QueryGenerationConfig` override
+- [ ] All config field values are validated on construction (raise `ValueError` on invalid)
+
+### Purity & deterministic output
+
+- [ ] `generate()` is pure — calling it twice with the same arguments returns identical `list[SearchQuery]`
+- [ ] No I/O, file access, or network calls inside `generate()`
+- [ ] Module-level constants are immutable (`Final`)
 
 ### Type safety
 
-- [ ] All functions have complete type annotations (`-> str`, `-> list[str]`, `-> list[tuple[str, float]]`)
-- [ ] No `Any` return types (except possibly for `**kwargs` passthrough)
+- [ ] `QueryGenerator` and all public functions are fully type-annotated
 - [ ] Module passes `pyright --strict` with no errors
+- [ ] No `Any` return types
 
 ### Edge cases
 
-- [ ] Empty string returns `[]` from all list-returning functions
-- [ ] All-stopword input returns `[]` for keyword/phrase extraction
-- [ ] `n <= 0` or `n > 10` in `extract_candidate_phrases` raises `ValueError`
-- [ ] `top_k=0` in `extract_keywords` raises `ValueError`
-- [ ] Results contain no stopwords (verified by checking against `_STOPWORDS`)
+- [ ] Empty `article_text = ""` → returns at least 1 `SearchQuery`
+- [ ] `n=0` or `n>10` inside `extract_candidate_phrases` raises `ValueError` (upstream contract)
+- [ ] Very long article (>50k words) — extraction phase is bounded by `top_k` and `max_phrases` to avoid OOM
+- [ ] HTML input (`"<p>Hello</p>"`) — output is identical to plain-text input after `strip_html_first`
 
-### Test coverage
+---
 
-- [ ] Every public function has at least one unit test per edge case in TC1–TC10 above
-- [ ] All 35 existing tests continue to pass (no regression in existing functions)
-- [ ] Pipeline tests (TC9) verify full `strip_html` → `normalize` → `extract_X` chains
+## Module Layout
+
+```
+backend/discovery/
+    query_generator.py    # QueryGenerator, QueryGenerationConfig, ScoredQuery, all helpers
+    utils/
+        __init__.py       # Exports text utilities
+        text_utils.py    # (existing — do not modify)
+    schemas/
+        __init__.py
+        search_query.py  # SearchQuery, SearchLanguage, ResultType, SafeSearchLevel
+```
+
+**Exports from `query_generator.py`:**
+
+```python
+__all__ = [
+    "QueryGenerationConfig",
+    "QueryGenerator",
+]
+```
+
+---
+
+## Design Rationale
+
+### Why quoted phrase queries?
+
+Search engines treat quoted strings as exact-match operators. Searching `"python programming tutorial"` returns pages containing that exact sequence of words — ideal for finding copied content. Unquoted queries (e.g. `python programming tutorial`) match pages containing those words anywhere, producing millions of noisy results.
+
+### Why multi-length n-grams?
+
+Short articles might not contain any 4-word distinctive phrases. Including `n=2` ensures we still generate usable queries from shorter content. Including `n=4` captures highly distinctive long-form content (legal text, technical documentation, quotes).
+
+### Why the keyword penalty?
+
+Keyword-only queries are valuable for recall but have very low precision in a plagiarism context. A page matching "python tutorial" could be about any python tutorial — not necessarily a copy of the target article. We rank them lower but still include them because in some cases they are the only viable queries.
+
+### Why Jaccard deduplication and not Levenshtein?
+
+Jaccard similarity on token sets is O(n×m) where n = number of queries, m = average tokens per query. For a maximum of 8–20 queries, this is negligible. Levenshtein is character-level and doesn't capture semantic overlap between queries like `"python tutorial guide"` and `"python tutorial java"` efficiently for this use case.
+
+### Why fallback to "copy" keyword?
+
+The safest minimal query for an empty article is `"copy"` — it is:
+- Short, valid search syntax for all providers
+- Broad enough to return results on any provider
+- Clearly not generating results about a specific (unknown) topic
+
+If the article has any content at all beyond stopwords, `extract_keywords` will produce a better query than this fallback.
+
+---
+
+# Content Extraction — Implementation Specification
+
+## Module
+
+`backend/content/extractor.py`
+
+## Package
+
+`backend.content`
+
+## Context
+
+The Discovery Service collects candidate article URLs from search providers. Before comparison with the original article, those candidate pages must be downloaded and their readable content extracted.
+
+The Content Extraction layer receives a URL and returns structured, normalized article text — ready for comparison against the original.
+
+**Who calls this:** The discovery pipeline (orchestration layer) after URL collection via search providers.
+
+---
+
+## Technology
+
+`trafilatura` is used as the extraction backend.
+
+Rationale for trafilatura:
+- Purpose-built for extracting **boilerplate-free article text** from any web page
+- Handles JavaScript-rendered pages via fallback heuristics when no `<article>` body is found
+- Returns title, text, excerpt, author, and publish date in one call
+- Built-in HTTPS download with configurable timeout
+- Pure Python, no Selenimum/Playwright required — suitable for hackathon MVP
+- Active maintenance, comprehensive test corpus
+
+---
+
+## Data Models
+
+---
+
+### `class ExtractedArticle`
+
+The canonical output of the extractor. Represents a single candidate article with its extracted content.
+
+```python
+class ExtractedArticle(BaseModel):
+    """Structured content from a scraped webpage."""
+
+    url: str = Field(..., description="Canonical URL the content was fetched from.")
+    title: str | None = Field(default=None, description="Article title extracted by trafilatura.")
+    text: str = Field(..., description="Boilerplate-free article text. Empty if extraction failed.")
+    text_length: int = Field(..., ge=0, description="Word count of the extracted text.")
+    excerpt: str | None = Field(
+        default=None,
+        description="First 200 characters of text, or a standalone description field from the page.",
+    )
+    author: str | None = Field(default=None, description="Author name if detected, otherwise None.")
+    publish_date: str | None = Field(
+        default=None,
+        description="ISO 8601 date string (YYYY-MM-DD) if detected, otherwise None.",
+    )
+    language: str | None = Field(
+        default=None,
+        description="ISO 639-1 language code detected by trafilatura, e.g. 'en'.",
+    )
+    extraction_mode: Literal["article", "text", "comments", "json"] = Field(
+        default="article",
+        description="Which trafilatura extraction mode was used.",
+    )
+    raw_html: str | None = Field(
+        default=None,
+        description="Raw HTML response body. Set to None after extraction to avoid retaining large strings.",
+    )
+```
+
+**Validation:**
+- `text_length` is always `len(text.split())` — a derived field, recomputed on set.
+- `url` must be a valid HTTP/HTTPS URL.
+- Empty `text` (`""`) is valid — it means extraction wholly failed and the caller must handle the null state.
+
+---
+
+### `class ExtractionResult`
+
+A wrapper that captures both the successfully extracted article and the failure state.
+
+```python
+from typing import Annotated, Literal
+
+class ExtractionResult(BaseModel):
+    """A single URL extraction attempt, either succeeded or failed."""
+
+    url: str = Field(..., description="URL that was attempted.")
+    article: ExtractedArticle | None = Field(
+        default=None,
+        description="Populated if extraction succeeded. None if all attempts failed.",
+    )
+    status: Literal["success", "failed", "no_text"] = Field(
+        ...,
+        description=(
+            "'success' — article extracted with non-empty text. "
+            "'no_text' — extraction succeeded but text is empty (probably a non-article page). "
+            "'failed' — network error or unexpected exception after all retries."
+        ),
+    )
+    error_message: str | None = Field(
+        default=None,
+        description="Human-readable error description if status is 'failed'. None otherwise.",
+    )
+    attempts: int = Field(..., ge=1, description="Number of download attempts made.")
+    elapsed_ms: int = Field(..., ge=0, description="Wall-clock time spent in milliseconds.")
+   ProviderName: str = Field(
+        default="trafilatura",
+        description="Identifier of the extraction backend used.",
+    )
+```
+
+---
+
+### `class ContentExtractorConfig`
+
+Configuration derived from `settings.content_extraction`. Immutable after construction.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True, slots=True)
+class ContentExtractorConfig:
+    timeout_seconds: float          # HTTP request timeout  (default: 15.0)
+    max_retries: int               # Retry count on failure  (default: 3)
+    retry_backoff_base_seconds: float  # Exponential backoff base (default: 1.0)
+    user_agent: str                # HTTP User-Agent header  (default: "CopyGuard/1.0 ...")
+    include_raw_html: bool         # Whether to retain raw HTML in result (default: False)
+    extraction_mode: Literal["article", "text"]  # trafilatura mode (default: "article")
+    min_text_length: int          # Minimum acceptable word count to count as "success" (default: 50)
+```
+
+**Construction:**
+
+```python
+# Default — reads from settings.content_extraction
+config = ContentExtractorConfig.from_settings()
+
+# Explicit override
+config = ContentExtractorConfig(timeout_seconds=30.0, max_retries=5)
+```
+
+---
+
+## Public Interfaces
+
+---
+
+### `class ContentExtractor`
+
+The main public class.
+
+```python
+class ContentExtractor:
+    __slots__ = ("_cfg",)
+
+    def __init__(self, config: ContentExtractorConfig | None = None) -> None:
+        """Create an extractor. Pass a custom config or use the default."""
+        ...
+
+    def extract(self, url: str) -> ExtractionResult:
+        """Extract article content from a URL.
+
+        Synchronous. Thread-safe — separate instances have independent state.
+
+        Parameters
+        ----------
+        url:
+            Full HTTP or HTTPS URL to extract. Must be 1–2000 characters.
+
+        Returns
+        -------
+        ExtractionResult
+            Always returns a result (never raises).
+            Check ``result.status`` before accessing ``result.article``.
+
+        Raises
+        ------
+        ValueError
+            If ``url`` is not a valid HTTP/HTTPS URL.
+        """
+        ...
+
+    async def extract_async(self, url: str) -> ExtractionResult:
+        """Async variant — runs extract() in a background thread to avoid blocking.
+
+        Same contract as ``extract()`` but non-blocking.
+        """
+        ...
+```
+
+---
+
+### `async def extract_url(url: str, config: ContentExtractorConfig | None = None) -> ExtractionResult`
+
+Module-level convenience function. Creates a default extractor and calls `extract_async`.
+
+```python
+async def extract_url(
+    url: str,
+    config: ContentExtractorConfig | None = None,
+) -> ExtractionResult:
+    ...
+```
+
+---
+
+## Error Handling Strategy
+
+### Failure modes
+
+| Failure mode | Symptom | Handling |
+|---|---|---|
+| DNS resolution failure | `socket.gaierror` | Treat as `failed`, return `ExtractionResult` with status=`failed` |
+| Connection timeout | `httpx.TimeoutException` | Retry (up to `max_retries`); if all fail → `failed` |
+| HTTP 4xx client error | `httpx.HTTPStatusError` | Do **not** retry; return `failed` immediately |
+| HTTP 429 rate-limit | `httpx.HTTPStatusError` 429 | Retry after `Retry-After` header if present, else exponential backoff |
+| HTTP 5xx server error | `httpx.HTTPStatusError` 5xx | Retry with backoff; if all fail → `failed` |
+| Invalid URL | `httpx.InvalidURL` | Return `failed` immediately without retry |
+| SSL error | `httpx.SSLError` | Treat as `failed`; do not retry SSL failures |
+| No article body found | trafilatura returns `None` text | Return `ExtractionResult` with status=`no_text`, article has `text=""` |
+| Robots.txt blocked | detection via `robots_txt_blocked()` check | Return `failed` with descriptive `error_message` |
+
+### Retry with exponential backoff
+
+```
+delay = retry_backoff_base_seconds × 2^(attempt_index - 1) + jitter(0, 0.5)
+```
+
+- Attempt 1: immediate
+- Attempt 2: base × 2 + jitter
+- Attempt 3: base × 4 + jitter
+- Capped at `timeout_seconds` per attempt
+
+### Robots.txt handling
+
+- Before every extraction, check `robots.txt` via `urllib.robotparser.RobotFileParser`.
+- If blocked: return `ExtractionResult` with `status="failed"` and `error_message="Blocked by robots.txt"`.
+- Do **not** raise an exception — robots.txt exclusion is a handled, expected case.
+
+---
+
+## Extraction Pipeline
+
+```
+url (string)
+        │
+        ▼
+URL validation  ──── invalid ──► ExtractionResult(status=failed)
+        │ valid
+        ▼
+robots.txt check ──── blocked ──► ExtractionResult(status=failed)
+        │ allowed
+        ▼
+trafilatura.fetch_url(url, timeout=cfg.timeout_seconds)
+        │
+        ├─── returns HTML body
+        ▼
+trafilatura.extract(
+    downloaded_html,
+    url=url,
+    output_format="json",
+    extraction_mode=cfg.extraction_mode,
+    settings={...},
+)
+        │
+        ├─── result is None / text empty ──► ExtractionResult(status=no_text)
+        ├─── result with text ──► ExtractionResult(status=success)
+        └─── raises exception ──► retry loop
+                │
+                ├─── retries exhausted ──► ExtractionResult(status=failed)
+                └─── max_retries == 0 ──► immediate fail
+```
+
+**Post-extraction normalization:**
+1. Strip leading/trailing whitespace from `title` and `text`.
+2. Set `text_length = len(text.split())`.
+3. Optionally discard `raw_html` after extraction (`include_raw_html=False`) to free memory.
+4. Normalize `publish_date` to ISO 8601 `YYYY-MM-DD` if trafilatura returns a datetime.
+
+---
+
+## Configuration Requirements
+
+Configuration is read from `settings.content_extraction` (already defined in `backend/core/config.py`):
+
+| Field | Env var | Type | Default |
+|---|---|---|---|
+| `request_timeout_seconds` | `CONTENT_REQUEST_TIMEOUT_SECONDS` | `float 1–60` | `15.0` |
+| `max_concurrent_extractions` | `CONTENT_MAX_CONCURRENT_EXTRACTIONS` | `int 1–50` | `10` |
+| `retry_attempts` | `CONTENT_RETRY_ATTEMPTS` | `int 0–5` | `3` |
+| `retry_backoff_base_seconds` | `CONTENT_RETRY_BACKOFF_BASE_SECONDS` | `float 0.5–10` | `1.0` |
+| `user_agent` | `CONTENT_USER_AGENT` | `str` | `"CopyGuard/1.0 (+https://github.com/lextrace)"` |
+
+**Additional fields not in `settings` (derived defaults):**
+
+| Field | Default |
+|---|---|
+| `include_raw_html` | `False` (set to `True` for debugging) |
+| `extraction_mode` | `"article"` (`"text"` for raw body without heuristics) |
+| `min_text_length` | `50` (words; below this → status=`no_text` rather than `success`) |
+
+---
+
+## Edge Cases
+
+| Case | Handling |
+|------|----------|
+| URL is `None` or empty | Raise `ValueError` immediately |
+| URL too long (>2000 chars) | Raise `ValueError` |
+| URL scheme not http/https | Raise `ValueError` |
+| trafilatura returns `None` for title | Set `title=None` |
+| trafilatura returns publish date as datetime | Convert to ISO8601 `YYYY-MM-DD` string |
+| trafilatura returns author list | Join with comma `", "`, store as single string |
+| trafilatura detects language as `None` | Set `language=None` |
+| Single retry attempt (`max_retries=0`) | No retry loop; return single attempt result only |
+| Server returns 429 with no `Retry-After` | Apply backoff based on `retry_backoff_base_seconds` |
+| `raw_html` very large (>10 MB) | Truncate to 10 MB before storing; log a warning |
+| Non-article page (login wall, search results) | trafilatura finds no body → `status=no_text` |
+| Unicode homepage with little text | trafilatura extracts what it can; `text_length` reflects reality |
+
+---
+
+## Module Layout
+
+```
+backend/content/
+    __init__.py                            # Exports ContentExtractor, extract_url
+    extractor.py                            # ContentExtractor, ContentExtractorConfig, ExtractedArticle, ExtractionResult
+
+backend/core/
+    config.py                              # ContentExtractionSettings (already exists)
+
+backend/discovery/
+    schemas/
+        responses.py                       # CandidateArticle (already exists — maps to ExtractionResult)
+```
+
+**Exports from `backend/content/__init__.py`:**
+
+```python
+__all__ = [
+    "ContentExtractor",
+    "ContentExtractorConfig",
+    "ExtractedArticle",
+    "ExtractionResult",
+    "extract_url",           # async convenience function
+]
+```
+
+---
+
+## Relationship to Existing Schema
+
+`ExtractedArticle` is the raw extracted content. It feeds into the discovery pipeline which transforms it into `CandidateArticle` (defined in `backend/discovery/schemas/responses.py`).
+
+The orchestration layer that receives candidate URLs from search providers will:
+
+```
+URL list
+  │
+  ▼
+ContentExtractor.extract_async(url)  for each URL   (concurrent, bounded by max_concurrent_extractions)
+  │
+  ▼
+ExtractionResult → CandidateArticle   (transform + rank)
+  │
+  ▼
+DiscoveryResponse (final API response)
+```
+
+---
+
+## Acceptance Criteria
+
+### Functional
+
+- [ ] `ContentExtractor.extract(url)` returns an `ExtractionResult`
+- [ ] `ExtractionResult.status` is always one of `"success"`, `"no_text"`, `"failed"`
+- [ ] `status="success"` means `article.text` is non-empty and `len(article.text.split()) >= min_text_length`
+- [ ] `status="failed"` means all retry attempts were exhausted or URL was invalid/blocked
+- [ ] `status="no_text"` means trafilatura ran but found no article body
+- [ ] Raw `ValueError` from invalid URL is never propagated — always wrapped in `ExtractionResult`
+- [ ] Network timeouts trigger retry up to `max_retries` with exponential backoff
+- [ ] HTTP 4xx errors are not retried — immediately return `status=failed`
+- [ ] HTTP 5xx errors are retried with backoff
+- [ ] robots.txt exclusion returns `status=failed` with descriptive error
+
+### Data completeness
+
+- [ ] `ExtractedArticle.text` contains only the article body — no navigation, no ads, no boilerplate
+- [ ] `ExtractedArticle.text` is Unicode-normalized (NFKC) and whitespace-collapsed
+- [ ] `ExtractedArticle.title` is stripped of HTML and normalized whitespace
+- [ ] `publish_date` is ISO 8601 `YYYY-MM-DD` string, or `None` if undetectable
+- [ ] `author` is a plain string with no HTML, or `None`
+- [ ] `text_length` matches `len(article.text.split())`
+- [ ] `language` is a valid ISO 639-1 two-letter code or `None`
+
+### Configuration
+
+- [ ] `ContentExtractorConfig.from_settings()` reads from `settings.content_extraction`
+- [ ] Constructor accepts `ContentExtractorConfig` override
+- [ ] All config values are validated on construction
+
+### Performance
+
+- [ ] `max_concurrent_extractions` is respected by the caller (orchestration layer)
+- [ ] `raw_html` is dropped (`= None`) after extraction unless `include_raw_html=True`
+- [ ] Total memory per extraction is bounded by response size (no unbounded growth)
+
+### Type safety
+
+- [ ] All public functions and classes are fully type-annotated
+- [ ] Module passes `pyright --strict` with no errors
+- [ ] No `Any` return types
+
+### Async
+
+- [ ] `ContentExtractor.extract_async()` runs without blocking the event loop
+- [ ] Multiple concurrent `extract_async()` calls are safe (thread pool under the hood)

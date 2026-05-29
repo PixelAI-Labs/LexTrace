@@ -1,6 +1,12 @@
 """Schemas package — request and response Pydantic models."""
 
 from backend.discovery.schemas.requests import DiscoveryOptions, DiscoveryRequest
+from backend.discovery.schemas.candidate_collection import (
+    CandidateCollectionResult,
+    CollectionStatistics,
+    ExtractionFailure,
+)
+from backend.discovery.schemas.orchestrator import SearchOrchestratorResult
 from backend.discovery.schemas.responses import (
     CandidateArticle,
     DiscoveryMetadata,
@@ -17,10 +23,14 @@ from backend.discovery.schemas.search_result import SearchResult, SearchResultCo
 __all__ = [
     # Discovery
     "CandidateArticle",
+    "CandidateCollectionResult",
+    "CollectionStatistics",
     "DiscoveryMetadata",
     "DiscoveryOptions",
     "DiscoveryRequest",
     "DiscoveryResponse",
+    "ExtractionFailure",
+    "SearchOrchestratorResult",
     # Search query
     "ResultType",
     "SafeSearchLevel",
