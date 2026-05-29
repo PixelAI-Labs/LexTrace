@@ -121,28 +121,28 @@ def test_TC4_invalid_log_level_raises(minimal_google_env: None, monkeypatch: pyt
 def test_TC5_google_max_results_over_max_raises(minimal_google_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """GOOGLE_MAX_RESULTS_PER_QUERY > 50 must raise ValidationError."""
     monkeypatch.setenv("GOOGLE_MAX_RESULTS_PER_QUERY", "100")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         Settings.model_validate({})
 
 
 def test_TC5_google_timeout_too_high_raises(minimal_google_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """GOOGLE_REQUEST_TIMEOUT_SECONDS > 60 must raise ValidationError."""
     monkeypatch.setenv("GOOGLE_REQUEST_TIMEOUT_SECONDS", "120")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         Settings.model_validate({})
 
 
 def test_TC5_rate_limit_negative_raises(minimal_google_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """Negative RATE_LIMIT_REQUESTS_PER_MINUTE must raise ValidationError."""
     monkeypatch.setenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "-5")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         Settings.model_validate({})
 
 
 def test_TC5_app_port_out_of_range_raises(minimal_google_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """APP_PORT outside 1-65535 range must raise ValidationError."""
     monkeypatch.setenv("APP_PORT", "70000")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         Settings.model_validate({})
 
 
