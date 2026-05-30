@@ -2,7 +2,7 @@
 
 Mount this router onto the FastAPI application:
 
-    from backend.analysis.api.router import router as analysis_router
+    from backend.api.router import router as analysis_router
     app.include_router(analysis_router)
 """
 
