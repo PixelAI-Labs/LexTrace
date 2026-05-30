@@ -13,7 +13,7 @@ class ScanSourceSummary(BaseModel):
     domain: str = Field(..., description="Root domain for the source.")
     url: str = Field(..., description="Canonical URL for the source.")
     title: str | None = Field(default=None, description="Source title if available.")
-    match_percent: int = Field(..., ge=0, le=100, description="Match percentage in whole numbers.")
+    match_percent: float = Field(..., ge=0, le=100, description="Match percentage as a float to preserve precision.")
     words_matched: int = Field(..., ge=0, description="Estimated matched word count.")
     authority: int | None = Field(
         default=None,
@@ -26,7 +26,7 @@ class ScanSourceSummary(BaseModel):
 class ScanSummary(BaseModel):
     """Backend-owned summary of the similarity analysis run."""
 
-    similarity: int = Field(..., ge=0, le=100, description="Top similarity percentage.")
+    similarity: float = Field(..., ge=0, le=100, description="Top similarity percentage as a float to preserve precision.")
     confidence: int = Field(
         ..., ge=0, le=100, description="Independent confidence in the analysis pipeline, not the similarity score."
     )

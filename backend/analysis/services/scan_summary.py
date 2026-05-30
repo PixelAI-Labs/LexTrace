@@ -64,10 +64,10 @@ def _build_source_summary(
     original_word_count: int,
 ) -> ScanSourceSummary:
     if analysis_result is None:
-        match_percent = 0
+        match_percent = 0.0
         words_matched = 0
     else:
-        match_percent = int(round(analysis_result.similarity_score * 100))
+        match_percent = round(analysis_result.similarity_score * 100, 1)
         words_matched = int(round(original_word_count * analysis_result.copied_percentage))
 
     classification = classify_similarity(match_percent)
@@ -83,7 +83,7 @@ def _build_source_summary(
     )
 
 
-def _calculate_confidence(discovery: DiscoveryResponse, sources: list[ScanSourceSummary], top_similarity: int) -> int:
+def _calculate_confidence(discovery: DiscoveryResponse, sources: list[ScanSourceSummary], top_similarity: float) -> int:
     discovery_quality = {
         "completed": 1.0,
         "partial": 0.7,
@@ -100,7 +100,7 @@ def _calculate_confidence(discovery: DiscoveryResponse, sources: list[ScanSource
 def _build_insight(
     discovery: DiscoveryResponse,
     matched_sources: list[ScanSourceSummary],
-    top_similarity: int,
+    top_similarity: float,
 ) -> str:
     total_sources = discovery.metadata.total_candidates
 

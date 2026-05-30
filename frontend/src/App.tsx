@@ -82,8 +82,9 @@ function parseSourceUrl(text: string) {
 
 function riskFromScore(score: number): 'Low' | 'Medium' | 'High' | 'Critical' {
   if (score >= 90) return 'Critical'
-  if (score >= 75) return 'High'
-  if (score >= 45) return 'Medium'
+  if (score >= 70) return 'High'
+  if (score >= 40) return 'Medium'
+  if (score >= 10) return 'Low'
   return 'Low'
 }
 
@@ -465,7 +466,7 @@ function App() {
                   </svg>
                   <div>
                     <div className="text-[16px] font-bold text-white">
-                      {displayResults.similarity}%
+                      {displayResults.similarity.toFixed(1)}%
                     </div>
                     <div className="text-[9px] font-mono text-[--color-muted]">
                       Similarity
@@ -796,7 +797,7 @@ function App() {
                         </svg>
                         <div>
                           <div className="text-[28px] font-bold text-white">
-                            {displayResults.similarity}% Similarity
+                            {displayResults.similarity.toFixed(1)}% Similarity
                           </div>
                           <RiskBadge level={displayResults.riskLevel} />
                         </div>
@@ -1055,7 +1056,7 @@ function App() {
                                   ? 'bg-yellow-500'
                                   : 'bg-green-500'
                           }`}
-                          style={{ width: `${displayResults.similarity}%` }}
+                          style={{ width: `${displayResults.similarity.toFixed(1)}%` }}
                         />
                       </div>
                       <RiskBadge level={displayResults.riskLevel} />
