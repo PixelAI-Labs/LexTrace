@@ -451,22 +451,22 @@ def _semantic_paragraph_matches(
     if not original or not candidates:
         return [], 0.0
 
-    model = _get_semantic_model(model_name)
     try:
+        model = _get_semantic_model(model_name)
         from sentence_transformers import util
-    except ImportError as exc:
-        raise RuntimeError(
-            "sentence-transformers is not installed. "
-            "Install it with `pip install sentence-transformers`."
-        ) from exc
+    except (RuntimeError, ImportError, OSError):
+        return [], 0.0
 
     original_texts = [segment.text for segment in original]
     candidate_texts = [segment.text for segment in candidates]
-    embeddings = model.encode(
-        original_texts + candidate_texts,
-        convert_to_tensor=True,
-        normalize_embeddings=True,
-    )
+    try:
+        embeddings = model.encode(
+            original_texts + candidate_texts,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+    except (RuntimeError, OSError, ValueError):
+        return [], 0.0
     original_embeddings = embeddings[: len(original_texts)]
     candidate_embeddings = embeddings[len(original_texts) :]
     scores = util.cos_sim(original_embeddings, candidate_embeddings)
@@ -476,7 +476,7 @@ def _semantic_paragraph_matches(
     used_candidates: set[int] = set()
 
     for original_index, row in enumerate(scores):
-        best_score = float(row.max().item())
+        best_score = _clamp_score(float(row.max().item()))
         best_scores.append(best_score)
         best_candidate_index = int(row.argmax().item())
 
@@ -505,7 +505,7 @@ def _semantic_paragraph_matches(
             )
         )
 
-    semantic_score = float(sum(best_scores) / len(best_scores)) if best_scores else 0.0
+    semantic_score = _clamp_score(float(sum(best_scores) / len(best_scores))) if best_scores else 0.0
     return semantic_matches, semantic_score
 
 
@@ -516,18 +516,26 @@ def _merge_paragraph_matches(
     if not incoming:
         return existing
 
-    seen: set[tuple[int | None, int | None, str]] = {
-        (match.original_paragraph_index, match.candidate_paragraph_index, match.match_type)
+    seen: set[tuple[int | None, int | None]] = {
+        (match.original_paragraph_index, match.candidate_paragraph_index)
         for match in existing
     }
     merged = list(existing)
     for match in incoming:
-        key = (match.original_paragraph_index, match.candidate_paragraph_index, match.match_type)
+        key = (match.original_paragraph_index, match.candidate_paragraph_index)
         if key in seen:
             continue
         seen.add(key)
         merged.append(match)
     return merged
+
+
+def _clamp_score(value: float) -> float:
+    if value <= 0.0:
+        return 0.0
+    if value >= 1.0:
+        return 1.0
+    return value
 
 
 def _match_char_totals(matches: list[MatchedSentence]) -> tuple[int, int]:

@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from backend.core.config import Settings, settings
 from backend.discovery.schemas.requests import DiscoveryRequest
