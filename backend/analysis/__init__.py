@@ -13,6 +13,8 @@ from backend.analysis.schemas import (
     MatchedSentence,
     RiskLevel,
     SimilarityBreakdown,
+    SimilarityResult,
+    SimilarityStrategy,
 )
 
 __all__ = [
@@ -28,4 +30,6 @@ __all__ = [
     "MatchedSentence",
     "RiskLevel",
     "SimilarityBreakdown",
+    "SimilarityResult",
+    "SimilarityStrategy",
 ]

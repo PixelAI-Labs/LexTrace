@@ -9,6 +9,7 @@ from backend.analysis.schemas.responses import (
     RiskLevel,
     SimilarityBreakdown,
 )
+from backend.analysis.schemas.similarity import SimilarityResult, SimilarityStrategy
 
 __all__ = [
     "AnalysisMetadata",
@@ -23,4 +24,6 @@ __all__ = [
     "MatchedSentence",
     "RiskLevel",
     "SimilarityBreakdown",
+    "SimilarityResult",
+    "SimilarityStrategy",
 ]
