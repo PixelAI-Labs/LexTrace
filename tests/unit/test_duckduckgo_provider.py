@@ -6,7 +6,8 @@ settings, error handling, and edge cases.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, cast
+from contextlib import contextmanager
+from typing import Any, Iterator, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,16 +35,29 @@ from backend.discovery.schemas.search_result import SearchResult, SearchResultCo
 # ---------------------------------------------------------------------------
 
 class _RawDDGResult(TypedDict):
-    """Shape returned by duckduckgo_search.DDGS.text() dict items."""
+    """Shape returned by ddgs.DDGS.text() dict items."""
     title: str
     href: str
     body: str
 
 
-async def _async_gen(values: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
-    """Turn a plain list into an async iterator — suitable for duck-side effects."""
-    for v in values:
-        yield v
+@contextmanager
+def _patch_ddgs(
+    text_results: list[dict[str, Any]] | None = None,
+    *,
+    text_side_effect: Exception | None = None,
+) -> Iterator[MagicMock]:
+    """Patch DDGS with a sync context manager matching the ddgs library."""
+    mock_ddgs_instance = MagicMock()
+    if text_side_effect is not None:
+        mock_ddgs_instance.text = MagicMock(side_effect=text_side_effect)
+    else:
+        mock_ddgs_instance.text = MagicMock(return_value=text_results or [])
+
+    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
+        mock_ddgs_class.return_value.__enter__.return_value = mock_ddgs_instance
+        mock_ddgs_class.return_value.__exit__.return_value = None
+        yield mock_ddgs_instance
 
 
 # ---------------------------------------------------------------------------
@@ -100,16 +114,7 @@ async def test_TC3_execute_normalises_results() -> None:
         },
     ]
 
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen(raw_results))
-
-    # Patch DDGS so "with DDGS(...)" yields our mock
-    with patch(
-        "backend.discovery.providers.duckduckgo.DDGS"
-    ) as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(raw_results):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="test article"))
 
@@ -143,13 +148,7 @@ async def test_TC4_domain_strips_www_and_lowercases() -> None:
     raw_results: list[_RawDDGResult] = [
         {"title": "Www Test", "href": "https://WWW.Example.COM/page", "body": "desc"},
     ]
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen(raw_results))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(raw_results):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="www test"))
 
@@ -168,21 +167,14 @@ async def test_TC5_max_results_respects_provider_ceiling() -> None:
         {"title": f"Result {i}", "href": f"https://site{i}.com/", "body": f"Body {i}"}
         for i in range(10)
     ]
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen(raw_results))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(raw_results) as mock_ddgs_instance:
         provider = DuckDuckGoProvider(cfg=cfg)
         # Request 20 but provider caps at 5
         collection = await provider.execute(SearchQuery(query="test", max_results=20))
 
-    # text() was called with at_most max_results = min(20, 5) = 5
-    # Note: ddgs.text takes a count parameter that is the MAX to return
-    args, _kwargs = mock_ddgs_instance.text.call_args
-    assert args[1] == 5  # second positional arg to text() is max_results
+    # text() was called with max_results = min(20, 5) = 5
+    _args, kwargs = mock_ddgs_instance.text.call_args
+    assert kwargs["max_results"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -192,13 +184,7 @@ async def test_TC5_max_results_respects_provider_ceiling() -> None:
 @pytest.mark.asyncio
 async def test_TC6_empty_results() -> None:
     """An empty raw list produces an empty collection with total_results=0."""
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen([]))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs([]):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="nothing"))
 
@@ -215,13 +201,7 @@ async def test_TC6_empty_results() -> None:
 @pytest.mark.asyncio
 async def test_TC7_site_restriction_added_to_query() -> None:
     """site_restriction='example.com' makes query text='term site:example.com'."""
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen([]))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs([]) as mock_ddgs_instance:
         provider = DuckDuckGoProvider()
         await provider.execute(
             SearchQuery(query="original term", site_restriction="example.com")
@@ -238,13 +218,7 @@ async def test_TC7_site_restriction_added_to_query() -> None:
 @pytest.mark.asyncio
 async def test_TC8_search_time_ms_populated() -> None:
     """search_time_ms must be a non-negative integer."""
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen([]))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs([]):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="speed test"))
 
@@ -259,15 +233,7 @@ async def test_TC8_search_time_ms_populated() -> None:
 @pytest.mark.asyncio
 async def test_TC9_raises_on_ddgs_exception() -> None:
     """If DDGS raises, DuckDuckGoError must be raised."""
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(
-        side_effect=RuntimeError("network unreachable")
-    )
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(text_side_effect=RuntimeError("network unreachable")):
         provider = DuckDuckGoProvider()
         with pytest.raises(DuckDuckGoError, match="network unreachable"):
             await provider.execute(SearchQuery(query="fail"))
@@ -284,13 +250,7 @@ async def test_TC10_rank_is_1_indexed() -> None:
         {"title": f"Title {i}", "href": f"https://site{i}.com/", "body": f"Body {i}"}
         for i in range(5)
     ]
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen(raw_results))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(raw_results):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="ranking"))
 
@@ -308,13 +268,7 @@ async def test_TC11_metadata_fields_populated() -> None:
     raw_results: list[_RawDDGResult] = [
         {"title": "T", "href": "https://x.com/", "body": "D"},
     ]
-    mock_ddgs_instance = MagicMock()
-    mock_ddgs_instance.text = MagicMock(return_value=_async_gen(raw_results))
-
-    with patch("backend.discovery.providers.duckduckgo.DDGS") as mock_ddgs_class:
-        mock_ddgs_class.return_value.__aenter__.return_value = mock_ddgs_instance
-        mock_ddgs_class.return_value.__aexit__.return_value = None
-
+    with _patch_ddgs(raw_results):
         provider = DuckDuckGoProvider()
         collection = await provider.execute(SearchQuery(query="my search term"))
 

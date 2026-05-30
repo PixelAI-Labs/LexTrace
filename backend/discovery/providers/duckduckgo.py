@@ -1,7 +1,7 @@
 """DuckDuckGo search provider implementation.
 
  Implements the :class:`SearchProvider` protocol using the
- ``duckduckgo-search`` library.  Normalises raw DuckDuckGo JSON
+ ``ddgs`` library.  Normalises raw DuckDuckGo JSON
  responses into canonical :class:`SearchResult` objects.
 """
 
@@ -12,7 +12,7 @@ import time
 import urllib.parse
 from typing import Any
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 from backend.core.config import DuckDuckGoSettings, settings
 from backend.discovery.providers.base import ProviderName, SearchProvider
@@ -39,7 +39,7 @@ def _collect_ddg_results(
 ) -> list[dict[str, Any]]:
     """Collect DuckDuckGo results from the sync generator."""
     results: list[dict[str, Any]] = []
-    for raw in ddgs.text(query_text, max_results):
+    for raw in ddgs.text(query_text, max_results=max_results):
         results.append(dict(raw))
     return results
 
@@ -90,7 +90,7 @@ class DuckDuckGoProvider:
         Raises
         ------
         DuckDuckGoError
-            If the underlying ``duckduckgo-search`` call fails for any reason.
+            If the underlying ``ddgs`` call fails for any reason.
         """
         start_ms = int(time.perf_counter() * 1000)
 

@@ -17,10 +17,19 @@ import {
   Upload,
 } from 'lucide-react'
 
-import {
-  parseScanResponse,
-  type ScanResponse,
-} from './lib/scanApi'
+import { parseScanResponse } from './lib/scanApi'
+import type { ScanResponse, SourceEntry } from './lib/scanApi'
+
+type ComparisonRow = {
+  original: string
+  matched: string
+  matchType: string
+  key: string
+}
+
+const DEMO_ARTICLE_TEXT =
+  'LexTrace helps publishers detect unauthorized copies of their articles across the web. ' +
+  'Paste your article text here to run discovery, similarity analysis, and evidence reporting in one scan.'
 
 const fadeUp: Variants = {
   initial: { opacity: 0, y: 24 },
@@ -115,6 +124,59 @@ function App() {
   const [backendError, setBackendError] = useState<string | null>(null)
   const [liveScan, setLiveScan] = useState<ScanResponse | null>(null)
   const scanTimerRef = useRef<number | null>(null)
+  const dashboardRef = useRef<HTMLElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const scrollToDashboard = () => {
+    dashboardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const focusDashboardInput = () => {
+    scrollToDashboard()
+    window.setTimeout(() => textareaRef.current?.focus(), 350)
+  }
+
+  const handleNavClick = (target: string) => {
+    const sectionIds: Record<string, string> = {
+      Features: 'features',
+      'How It Works': 'how-it-works',
+      Dashboard: 'dashboard',
+      Pricing: 'pricing',
+    }
+    document.getElementById(sectionIds[target] ?? '')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const handleNewScan = () => {
+    setActiveTab('analysis')
+    setShowScanResult(false)
+    setBackendError(null)
+    setInputText('')
+    setLiveScan(null)
+    setScanProgress(0)
+    setIsScanning(false)
+    focusDashboardInput()
+  }
+
+  const handleViewDemo = () => {
+    setActiveTab('analysis')
+    setInputText(DEMO_ARTICLE_TEXT)
+    setShowScanResult(false)
+    setBackendError(null)
+    scrollToDashboard()
+    window.setTimeout(() => textareaRef.current?.focus(), 350)
+  }
+
+  const handleStartAnalysis = () => {
+    scrollToDashboard()
+    if (inputText.trim().length >= 100) {
+      handleAnalyze()
+      return
+    }
+    focusDashboardInput()
+  }
 
   useEffect(() => {
     return () => {
@@ -134,6 +196,7 @@ function App() {
     if (articleText.length < 100) {
       setBackendError('Paste at least 100 characters so the backend can run discovery.')
       setShowScanResult(false)
+      scrollToDashboard()
       return
     }
 
@@ -210,7 +273,7 @@ function App() {
     const similarity = summary?.similarity ?? 0
     const confidence = summary?.confidence ?? 0
     const sourceCount = summary?.source_count ?? 0
-    const matchedWords = summary?.sources.reduce((total, source) => total + source.words_matched, 0) ?? 0
+    const matchedWords = summary?.sources.reduce((total: number, source: SourceEntry) => total + source.words_matched, 0) ?? 0
 
     return {
       similarity,
@@ -224,12 +287,12 @@ function App() {
   const displaySources = useMemo(() => liveScan?.summary.sources ?? [], [liveScan])
 
   const matchedSources = useMemo(
-    () => displaySources.filter((source) => source.classification !== 'NO MATCH'),
+    () => displaySources.filter((source: SourceEntry) => source.classification !== 'NO MATCH'),
     [displaySources],
   )
 
   const candidateSources = useMemo(
-    () => displaySources.filter((source) => source.classification === 'NO MATCH'),
+    () => displaySources.filter((source: SourceEntry) => source.classification === 'NO MATCH'),
     [displaySources],
   )
 
@@ -258,6 +321,8 @@ function App() {
           {['Features', 'How It Works', 'Dashboard', 'Pricing'].map((item) => (
             <button
               key={item}
+              type="button"
+              onClick={() => handleNavClick(item)}
               className="text-[13px] text-[--color-muted] transition hover:text-white"
             >
               {item}
@@ -266,10 +331,18 @@ function App() {
         </div>
 
         <div className="hidden items-center gap-4 md:flex">
-          <button className="text-[13px] text-[--color-muted] transition hover:text-white">
+          <button
+            type="button"
+            onClick={scrollToDashboard}
+            className="text-[13px] text-[--color-muted] transition hover:text-white"
+          >
             Sign In
           </button>
-          <button className="rounded-md bg-[--color-blue] px-4 py-2 text-[13px] font-medium text-white transition hover:bg-[--color-blue-bright]">
+          <button
+            type="button"
+            onClick={handleStartAnalysis}
+            className="rounded-md bg-[--color-blue] px-4 py-2 text-[13px] font-medium text-white transition hover:bg-[--color-blue-bright]"
+          >
             Start Free Trial
           </button>
         </div>
@@ -280,9 +353,9 @@ function App() {
       </motion.nav>
 
       <section className="relative flex min-h-screen w-full flex-col items-center justify-center px-6 pb-16 pt-24 text-center">
-        <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,_rgba(37,99,255,0.12)_0%,_transparent_70%)]" />
-        <div className="pointer-events-none absolute -right-40 -top-20 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,_rgba(124,58,237,0.08)_0%,_transparent_70%)]" />
-        <div className="pointer-events-none absolute left-1/2 top-1/2 h-[400px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse,_rgba(37,99,255,0.06)_0%,_transparent_60%)]" />
+        <div className="pointer-events-none absolute -left-40 -top-40 h-150 w-150 rounded-full bg-[radial-gradient(circle,rgba(37,99,255,0.12)_0%,transparent_70%)]" />
+        <div className="pointer-events-none absolute -right-40 -top-20 h-150 w-150 rounded-full bg-[radial-gradient(circle,rgba(124,58,237,0.08)_0%,transparent_70%)]" />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-100 w-200 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse,rgba(37,99,255,0.06)_0%,transparent_60%)]" />
 
         <div className="pointer-events-none absolute inset-0 opacity-60">
           <svg className="h-full w-full" aria-hidden="true">
@@ -333,12 +406,12 @@ function App() {
             <h1 className="font-display text-[14vw] font-extrabold leading-[0.88] tracking-[-0.04em] text-white md:text-[11vw] lg:text-[10vw]">
               TRUTH
             </h1>
-            <div className="mx-auto mt-2 h-[3px] w-full max-w-[520px] bg-gradient-to-r from-[--color-blue] via-[--color-violet] to-[--color-cyan]" />
+            <div className="mx-auto mt-2 h-0.75 w-full max-w-130 bg-linear-to-r from-[--color-blue] via-[--color-violet] to-[--color-cyan]" />
           </motion.div>
         </motion.div>
 
         <motion.p
-          className="relative z-10 mt-8 max-w-[520px] text-[15px] leading-[1.65] text-[--color-muted] md:text-[17px]"
+          className="relative z-10 mt-8 max-w-130 text-[15px] leading-[1.65] text-[--color-muted] md:text-[17px]"
           variants={fadeUp}
           initial="initial"
           animate="animate"
@@ -356,13 +429,18 @@ function App() {
           transition={{ delay: 0.6 }}
         >
           <button
-            onClick={handleAnalyze}
+            type="button"
+            onClick={handleStartAnalysis}
             className="group inline-flex items-center gap-2 rounded-md bg-[--color-blue] px-6 py-3 text-[14px] font-medium text-white transition hover:-translate-y-0.5 hover:bg-[--color-blue-bright] hover:shadow-[0_8px_30px_rgba(37,99,255,0.4)]"
           >
             <Search size={16} />
             Analyze Content
           </button>
-          <button className="group inline-flex items-center gap-2 rounded-md border border-[--color-border] px-6 py-3 text-[14px] text-[--color-muted] transition hover:-translate-y-0.5 hover:border-white/20 hover:text-white">
+          <button
+            type="button"
+            onClick={handleViewDemo}
+            className="group inline-flex items-center gap-2 rounded-md border border-[--color-border] px-6 py-3 text-[14px] text-[--color-muted] transition hover:-translate-y-0.5 hover:border-white/20 hover:text-white"
+          >
             <Play size={16} />
             View Demo
           </button>
@@ -390,14 +468,14 @@ function App() {
                 </div>
               </div>
               {index < 2 && (
-                <div className="hidden h-12 w-[1px] bg-[--color-border] md:block" />
+                <div className="hidden h-12 w-px bg-[--color-border] md:block" />
               )}
             </div>
           ))}
         </motion.div>
 
         <motion.div
-          className="relative z-10 mt-20 w-full max-w-[860px]"
+          className="relative z-10 mt-20 w-full max-w-215"
           variants={scaleIn}
           initial="initial"
           animate="animate"
@@ -405,16 +483,16 @@ function App() {
         >
           <motion.div
             whileHover={{ y: -4 }}
-            className="relative overflow-hidden rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,_rgba(8,12,24,0.9),_rgba(5,7,15,0.95))] shadow-[0_40px_100px_rgba(0,0,0,0.6),_0_0_0_1px_rgba(37,99,255,0.1),_inset_0_1px_0_rgba(255,255,255,0.04)]"
+            className="relative overflow-hidden rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,rgba(8,12,24,0.9),rgba(5,7,15,0.95))] shadow-[0_40px_100px_rgba(0,0,0,0.6),0_0_0_1px_rgba(37,99,255,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]"
           >
-            <div className="absolute left-0 right-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-[--color-blue]/50 to-transparent" />
+            <div className="absolute left-0 right-0 top-0 h-px bg-linear-to-r from-transparent via-[--color-blue]/50 to-transparent" />
             <div className="flex items-center gap-3 border-b border-[--color-border] px-5 py-3">
               <div className="flex gap-2">
                 <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
                 <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
                 <span className="h-3 w-3 rounded-full bg-[#28c840]" />
               </div>
-              <div className="flex-1 text-center text-[11px] font-mono tracking-[0.1em] text-[--color-muted]">
+              <div className="flex-1 text-center text-[11px] font-mono tracking-widest text-[--color-muted]">
                 lextrace.io/analyze
               </div>
               <Shield size={14} className="text-[--color-cyan]" />
@@ -436,9 +514,13 @@ function App() {
                     <div className="h-2 rounded-full border-l-2 border-[--color-blue] bg-[--color-blue]/20" />
                   </div>
                 </div>
-                <div className="mt-4 rounded bg-[--color-blue] py-2 text-center text-[11px] font-mono text-white">
+                <button
+                  type="button"
+                  onClick={handleStartAnalysis}
+                  className="mt-4 w-full rounded bg-[--color-blue] py-2 text-center text-[11px] font-mono text-white transition hover:bg-[--color-blue-bright]"
+                >
                   Analyze Content
-                </div>
+                </button>
               </div>
               <div className="p-5">
                 <div className="flex items-center gap-4">
@@ -489,6 +571,7 @@ function App() {
       </section>
 
       <motion.section
+        id="features"
         className="relative z-20 w-full px-6 py-32 md:px-12"
         variants={fadeUp}
         initial="initial"
@@ -498,16 +581,12 @@ function App() {
         <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-[--color-blue]">
           [ 01 ] Core Features
         </div>
-        <h2 className="mt-4 max-w-[600px] font-display text-[2.4rem] font-bold leading-[1.1] tracking-[-0.03em] text-white md:text-[3.2rem]">
+        <h2 className="mt-4 max-w-150 font-display text-[2.4rem] font-bold leading-[1.1] tracking-[-0.03em] text-white md:text-[3.2rem]">
           Everything you need to protect your content
         </h2>
-        <p className="mt-4 max-w-[480px] text-[15px] text-[--color-muted]">
-                  <RiskBadge level={displayResults.riskLevel} />
-          evidence in one unified platform.
+        <p className="mt-4 max-w-120 text-[15px] text-[--color-muted]">
+          From discovery to DMCA-ready evidence in one unified platform.
         </p>
-                  <div className="text-[20px] font-bold text-[--color-cyan]">
-                    {displayResults.sourcesFound}
-                  </div>
         <motion.div
           className="mt-16 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
           variants={staggerContainer(0.1)}
@@ -562,9 +641,9 @@ function App() {
             <motion.div
               key={feature.title}
               variants={fadeUp}
-              className="rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,_rgba(8,12,24,0.8),_rgba(5,7,15,0.6))] p-6 transition hover:-translate-y-0.5 hover:border-[--color-blue]/30"
+              className="rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,rgba(8,12,24,0.8),rgba(5,7,15,0.6))] p-6 transition hover:-translate-y-0.5 hover:border-[--color-blue]/30"
             >
-              <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-lg border border-[--color-blue]/20 bg-[linear-gradient(135deg,_rgba(37,99,255,0.2),_rgba(124,58,237,0.1))]">
+              <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-lg border border-[--color-blue]/20 bg-[linear-gradient(135deg,rgba(37,99,255,0.2),rgba(124,58,237,0.1))]">
                 <feature.icon size={18} className="text-[--color-blue]" />
               </div>
               <div className="text-[15px] font-semibold text-white">
@@ -581,24 +660,31 @@ function App() {
         </motion.div>
 
         <motion.div
-          className="mt-8 flex flex-col gap-6 rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,_rgba(8,12,24,0.8),_rgba(5,7,15,0.6))] p-8 md:flex-row md:items-center md:justify-between md:p-12"
+          className="mt-8 flex flex-col gap-6 rounded-xl border border-[--color-border] bg-[linear-gradient(135deg,rgba(8,12,24,0.8),rgba(5,7,15,0.6))] p-8 md:flex-row md:items-center md:justify-between md:p-12"
           variants={fadeUp}
           initial="initial"
           whileInView="animate"
           viewport={sectionViewport}
         >
-          <h3 className="max-w-[420px] font-display text-[1.6rem] font-bold leading-[1.2] text-white md:text-[2.2rem]">
+          <h3 className="max-w-105 font-display text-[1.6rem] font-bold leading-[1.2] text-white md:text-[2.2rem]">
             Powered by semantic AI — not just keyword matching
           </h3>
-          <div className="max-w-[420px] text-[13px] leading-[1.7] text-[--color-muted]">
+          <div className="max-w-105 text-[13px] leading-[1.7] text-[--color-muted]">
             LexTrace builds a semantic fingerprint of your content, revealing when
             articles are rewritten, paraphrased, or syndicated without permission.
-            <div className="mt-4 text-[--color-blue]">Learn More →</div>
+            <button
+              type="button"
+              onClick={() => handleNavClick('How It Works')}
+              className="mt-4 text-[--color-blue] transition hover:text-[--color-blue-bright]"
+            >
+              Learn More →
+            </button>
           </div>
         </motion.div>
       </motion.section>
 
       <motion.section
+        id="how-it-works"
         className="relative w-full border-y border-[--color-border] bg-[--color-surface] px-6 py-32 md:px-12"
         variants={fadeUp}
         initial="initial"
@@ -611,7 +697,7 @@ function App() {
         <h2 className="mt-4 font-display text-[2.4rem] font-bold leading-[1.1] tracking-[-0.03em] text-white md:text-[3.2rem]">
           From paste to proof in seconds
         </h2>
-        <p className="mt-4 max-w-[480px] text-[15px] text-[--color-muted]">
+        <p className="mt-4 max-w-120 text-[15px] text-[--color-muted]">
           A streamlined workflow designed for editorial, legal, and compliance teams.
         </p>
 
@@ -645,7 +731,7 @@ function App() {
           ].map((step) => (
             <div
               key={step.step}
-              className="flex max-w-[220px] flex-1 flex-col"
+              className="flex max-w-55 flex-1 flex-col"
             >
               <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[--color-blue]">
                 {step.step}
@@ -665,7 +751,9 @@ function App() {
       </motion.section>
 
       <motion.section
-        className="relative w-full px-6 py-32 md:px-12"
+        id="dashboard"
+        ref={dashboardRef}
+        className="relative w-full scroll-mt-24 px-6 py-32 md:px-12"
         variants={fadeUp}
         initial="initial"
         whileInView="animate"
@@ -677,13 +765,13 @@ function App() {
         <h2 className="mt-4 font-display text-[2.4rem] font-bold leading-[1.1] tracking-[-0.03em] text-white md:text-[3.2rem]">
           See LexTrace in action
         </h2>
-        <p className="mt-4 max-w-[480px] text-[15px] text-[--color-muted]">
+        <p className="mt-4 max-w-120 text-[15px] text-[--color-muted]">
           A real-time command center for similarity scores, discovery, and evidence.
         </p>
 
-        <div className="mx-auto mt-12 w-full max-w-[1100px] overflow-hidden rounded-xl border border-[--color-border] bg-[--color-surface]">
+        <div className="mx-auto mt-12 w-full max-w-275 overflow-hidden rounded-xl border border-[--color-border] bg-[--color-surface]">
           <div className="flex items-center justify-between border-b border-[--color-border] px-6 py-3">
-            <div className="flex flex-wrap gap-6 text-[12px] font-mono uppercase tracking-[0.1em]">
+            <div className="flex flex-wrap gap-6 text-[12px] font-mono uppercase tracking-widest">
               {[
                 { label: 'Similarity Analysis', value: 'analysis' },
                 { label: 'Source Discovery', value: 'discovery' },
@@ -692,6 +780,7 @@ function App() {
               ].map((tab) => (
                 <button
                   key={tab.value}
+                  type="button"
                   onClick={() => setActiveTab(tab.value as typeof activeTab)}
                   className={`pb-3 transition ${
                     activeTab === tab.value
@@ -703,7 +792,11 @@ function App() {
                 </button>
               ))}
             </div>
-            <button className="rounded-md bg-[--color-blue] px-3 py-1 text-[11px] font-medium text-white transition hover:bg-[--color-blue-bright]">
+            <button
+              type="button"
+              onClick={handleNewScan}
+              className="rounded-md bg-[--color-blue] px-3 py-1 text-[11px] font-medium text-white transition hover:bg-[--color-blue-bright]"
+            >
               New Scan
             </button>
           </div>
@@ -715,12 +808,14 @@ function App() {
                   CONTENT INPUT
                 </div>
                 <textarea
+                  ref={textareaRef}
                   value={inputText}
                   onChange={(event) => setInputText(event.target.value)}
                   placeholder="Paste at least 100 characters of article text, or a URL plus article text."
-                  className="mt-4 min-h-[200px] w-full rounded-lg border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-4 text-[13px] font-mono leading-[1.7] text-[--color-muted] focus:border-[--color-blue]/40 focus:outline-none"
+                  className="mt-4 min-h-50 w-full rounded-lg border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-4 text-[13px] font-mono leading-[1.7] text-[--color-muted] focus:border-[--color-blue]/40 focus:outline-none"
                 />
                 <button
+                  type="button"
                   onClick={handleAnalyze}
                   disabled={isScanning}
                   className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[--color-blue] px-4 py-2 text-[12px] font-mono uppercase tracking-[0.15em] text-white transition ${
@@ -732,9 +827,9 @@ function App() {
                   <ScanSearch size={16} />
                   {isScanning ? 'Scanning...' : 'Analyze Now'}
                 </button>
-                <div className="mt-4 h-[2px] w-full overflow-hidden rounded-full bg-[--color-border]">
+                <div className="mt-4 h-0.5 w-full overflow-hidden rounded-full bg-[--color-border]">
                   <div
-                    className="h-full bg-gradient-to-r from-[--color-blue] to-[--color-cyan]"
+                    className="h-full bg-linear-to-r from-[--color-blue] to-[--color-cyan]"
                     style={{ width: `${scanProgress}%` }}
                   />
                 </div>
@@ -861,11 +956,11 @@ function App() {
                       initial="initial"
                       animate="animate"
                     >
-                      {matchedSources.map((source) => (
+                      {matchedSources.map((source: SourceEntry) => (
                         <motion.div
                           key={source.url}
                           variants={fadeUp}
-                          className="grid grid-cols-6 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/[0.02]"
+                          className="grid grid-cols-6 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/2"
                         >
                           <div className="col-span-2 flex items-center gap-2 font-mono text-[13px]">
                             <Globe size={14} className="text-[--color-muted]" />
@@ -886,7 +981,7 @@ function App() {
                           </div>
                           <div>
                             <span
-                              className={`rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.1em] ${sourceBadgeClass(
+                              className={`rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-widest ${sourceBadgeClass(
                                 source.classification,
                               )}`}
                             >
@@ -921,11 +1016,11 @@ function App() {
                       initial="initial"
                       animate="animate"
                     >
-                      {candidateSources.map((source) => (
+                      {candidateSources.map((source: SourceEntry) => (
                         <motion.div
                           key={source.url}
                           variants={fadeUp}
-                          className="grid grid-cols-6 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/[0.02]"
+                          className="grid grid-cols-6 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/2"
                         >
                           <div className="col-span-2 flex items-center gap-2 font-mono text-[13px]">
                             <Globe size={14} className="text-[--color-muted]" />
@@ -936,7 +1031,7 @@ function App() {
                           </div>
                           <div>
                             <span
-                              className={`rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.1em] ${sourceBadgeClass(
+                              className={`rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-widest ${sourceBadgeClass(
                                 source.classification,
                               )}`}
                             >
@@ -982,7 +1077,7 @@ function App() {
                         matchType: entry.match_type,
                         key: `${entry.match_type}-${index}`,
                       }))
-                  ).map((entry) => (
+                  ).map((entry: ComparisonRow) => (
                     <div key={entry.key} className="grid grid-cols-2 gap-4">
                       <div
                         className={`rounded-r px-3 py-2 text-[13px] leading-[1.65] ${
@@ -1095,14 +1190,15 @@ function App() {
       </motion.section>
 
       <motion.section
+        id="pricing"
         className="relative overflow-hidden px-6 py-40 text-center md:px-12"
         variants={fadeUp}
         initial="initial"
         whileInView="animate"
         viewport={sectionViewport}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_50%,_rgba(37,99,255,0.12),_transparent)]" />
-        <div className="relative z-10 mx-auto max-w-[640px]">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_50%,rgba(37,99,255,0.12),transparent)]" />
+        <div className="relative z-10 mx-auto max-w-160">
           <div className="inline-flex items-center gap-2 rounded-full border border-[--color-blue]/30 bg-[--color-blue]/10 px-3 py-1.5">
             <motion.span
               className="h-1.5 w-1.5 rounded-full bg-[--color-cyan]"
@@ -1122,7 +1218,11 @@ function App() {
             Detect infringements, prove ownership, and respond faster than the
             copycats.
           </p>
-          <button className="mt-10 inline-flex items-center gap-2 rounded-md bg-[--color-blue] px-8 py-4 text-[15px] font-medium text-white transition hover:-translate-y-0.5 hover:bg-[--color-blue-bright]">
+          <button
+            type="button"
+            onClick={handleStartAnalysis}
+            className="mt-10 inline-flex items-center gap-2 rounded-md bg-[--color-blue] px-8 py-4 text-[15px] font-medium text-white transition hover:-translate-y-0.5 hover:bg-[--color-blue-bright]"
+          >
             <Search size={16} />
             Start Free Analysis
           </button>
@@ -1145,7 +1245,7 @@ function App() {
               <span className="text-[--color-blue]">◈</span>
               <span className="font-display">LEXTRACE</span>
             </div>
-            <p className="mt-3 max-w-[240px] text-[13px] leading-[1.6] text-[--color-muted]">
+            <p className="mt-3 max-w-60 text-[13px] leading-[1.6] text-[--color-muted]">
               AI-powered content intelligence for the modern web.
             </p>
             <div className="mt-6 text-[11px] font-mono text-[--color-muted]">
@@ -1212,7 +1312,7 @@ function RiskBadge({ level }: { level: 'Low' | 'Medium' | 'High' | 'Critical' })
 function ScanningBeam() {
   return (
     <motion.div
-      className="pointer-events-none absolute left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#2563ff] to-transparent opacity-40"
+      className="pointer-events-none absolute left-0 right-0 h-px bg-linear-to-r from-transparent via-blue-600 to-transparent opacity-40"
       animate={{ top: ['0%', '100%'] }}
       transition={{ duration: 3.5, ease: 'linear', repeat: Infinity }}
     />
