@@ -7,6 +7,7 @@ from backend.analysis.services.article_similarity import (
     SimilarityThresholds,
     SimilarityWeights,
 )
+from backend.analysis.services.evidence_report import EvidenceReportGenerator
 from backend.analysis.services.risk_assessment import (
     RiskAssessmentService,
     RiskAssessmentThresholds,
@@ -16,6 +17,7 @@ from backend.analysis.services.risk_assessment import (
 __all__ = [
     "ArticleSimilarityAnalyzer",
     "ArticleSimilarityOutcome",
+    "EvidenceReportGenerator",
     "SimilarityConfig",
     "SimilarityThresholds",
     "SimilarityWeights",

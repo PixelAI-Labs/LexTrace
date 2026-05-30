@@ -1,6 +1,7 @@
 """Schemas package for the Analysis Service."""
 
 from backend.analysis.schemas.evidence import EvidenceItem, EvidenceSummary, MatchedParagraph, MatchedSentence
+from backend.analysis.schemas.report import EvidenceReport, ReportFormat
 from backend.analysis.schemas.requests import AnalysisOptions, AnalysisRequest, CandidateInput
 from backend.analysis.schemas.responses import (
     AnalysisMetadata,
@@ -19,9 +20,11 @@ __all__ = [
     "CandidateAnalysis",
     "CandidateInput",
     "EvidenceItem",
+    "EvidenceReport",
     "EvidenceSummary",
     "MatchedParagraph",
     "MatchedSentence",
+    "ReportFormat",
     "RiskAssessment",
     "RiskLevel",
     "SimilarityBreakdown",
