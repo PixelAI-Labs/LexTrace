@@ -278,6 +278,9 @@ async def scan(
     report_generator: Annotated[EvidenceReportGenerator, Depends(get_report_generator)],
     dmca_generator: Annotated[DmcaGeneratorService, Depends(get_dmca_generator)],
 ) -> ScanResponse:
+    print("--- DEBUG START ---", flush=True)
+    print(f"1. Received Input Content: {req.article_text[:100]}...", flush=True)
+
     discovery_options = req.options.model_copy(update={"include_content": True})
     discovery_request = DiscoveryRequest(
         article_text=req.article_text,
@@ -291,6 +294,18 @@ async def scan(
         collector,
     )
 
+    print(
+        f"2. Discovered Candidates Count: {len(discovery_response.candidates)} "
+        f"(urls collected: {discovery_response.total_urls_collected})",
+        flush=True,
+    )
+    if discovery_response.candidates:
+        preview = discovery_response.candidates[0]
+        print(
+            f"   First candidate: url={preview.url!r} content_len={len(preview.content or '')}",
+            flush=True,
+        )
+
     candidate_inputs = [
         CandidateInput(
             url=candidate.url,
@@ -301,6 +316,8 @@ async def scan(
         for candidate in discovery_response.candidates
         if candidate.content
     ]
+
+    print(f"   Candidate inputs with content: {len(candidate_inputs)}", flush=True)
 
     if candidate_inputs:
         analysis_request = AnalysisRequest(
@@ -319,6 +336,14 @@ async def scan(
             evidence=None,
             risk_assessment=None,
         )
+
+    print(
+        f"3. Analysis Engine Output: results={len(analysis_response.results)} "
+        f"top_similarity="
+        f"{max((r.similarity_score for r in analysis_response.results), default=0.0):.3f}",
+        flush=True,
+    )
+    print("--- DEBUG END ---", flush=True)
 
     summary = build_scan_summary(
         original_article=req.article_text,

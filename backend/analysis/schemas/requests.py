@@ -9,10 +9,10 @@ class AnalysisOptions(BaseModel):
     """Optional tuning parameters for analysis."""
 
     min_similarity: float = Field(
-        default=0.6,
+        default=0.1,
         ge=0.0,
         le=1.0,
-        description="Minimum similarity score required to flag a candidate.",
+        description="Minimum similarity score required to include a candidate in risk assessment.",
     )
     max_candidates: int = Field(
         default=50,

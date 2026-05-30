@@ -116,10 +116,16 @@ class DuckDuckGoProvider:
         results: list[SearchResult] = []
         for rank_offset, raw in enumerate(raw_results, start=1):
             try:
+                description = raw.get("body", "")
+                if len(description) > 1000:
+                    description = description[:1000]
+                title = raw.get("title", "")
+                if len(title) > 500:
+                    title = title[:500]
                 result = SearchResult(
                     url=raw["href"],
-                    title=raw.get("title", ""),
-                    description=raw.get("body", ""),
+                    title=title,
+                    description=description,
                     domain=_root_domain(raw.get("href", "")),
                     publish_date=None,
                     language=None,
@@ -128,10 +134,8 @@ class DuckDuckGoProvider:
                     rank=rank_offset,
                 )
                 results.append(result)
-            except Exception as exc:  # pragma: no cover — malformed raw items
-                raise DuckDuckGoError(
-                    f"Failed to normalise DuckDuckGo result: {exc}"
-                ) from exc
+            except Exception as exc:  # pragma: no cover — skip malformed raw items
+                continue
 
         total = len(results)  # DuckDuckGo doesn't provide a total count
         return SearchResultCollection(

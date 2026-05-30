@@ -45,10 +45,12 @@ def analyze(
 
     for candidate in body.candidate_articles[: options.max_candidates]:
         outcome = analyzer_instance.analyze(body.original_article, candidate)
-        if outcome.analysis.similarity_score < options.min_similarity:
-            continue
         results.append(outcome.analysis)
         evidence_items.append(outcome.evidence)
+
+    flagged_results = [
+        result for result in results if result.similarity_score >= options.min_similarity
+    ]
 
     # ── evidence summary ──────────────────────────────────────────────────────
     evidence_summary = EvidenceSummary(
@@ -61,8 +63,8 @@ def analyze(
 
     # ── risk assessment (highest-risk candidate) ──────────────────────────────
     risk_assessment = None
-    if results:
-        top = max(results, key=lambda r: r.similarity_score)
+    if flagged_results:
+        top = max(flagged_results, key=lambda r: r.similarity_score)
         _top_item = next(
             (e for e in evidence_items if e.candidate_url == top.candidate_url), None
         )
