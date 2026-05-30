@@ -16,6 +16,13 @@ from backend.analysis.schemas import (
     SimilarityResult,
     SimilarityStrategy,
 )
+from backend.analysis.services import (
+    ArticleSimilarityAnalyzer,
+    ArticleSimilarityOutcome,
+    SimilarityConfig,
+    SimilarityThresholds,
+    SimilarityWeights,
+)
 
 __all__ = [
     "AnalysisMetadata",
@@ -32,4 +39,9 @@ __all__ = [
     "SimilarityBreakdown",
     "SimilarityResult",
     "SimilarityStrategy",
+    "ArticleSimilarityAnalyzer",
+    "ArticleSimilarityOutcome",
+    "SimilarityConfig",
+    "SimilarityThresholds",
+    "SimilarityWeights",
 ]
