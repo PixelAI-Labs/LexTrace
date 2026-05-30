@@ -177,3 +177,4 @@ MANIFEST
 *.swp
 *.swo
 *~
+*.pyc

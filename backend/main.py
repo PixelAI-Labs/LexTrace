@@ -38,6 +38,7 @@ from backend.analysis.schemas.dmca import DmcaNotice, DmcaRequest
 from backend.analysis.schemas.report import EvidenceReport, ReportFormat
 from backend.analysis.schemas.requests import AnalysisOptions, AnalysisRequest, CandidateInput
 from backend.analysis.schemas.responses import AnalysisResponse
+from backend.analysis.schemas.scan import ScanSummary
 from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer
 from backend.analysis.services.dependencies import (
     get_analyzer,
@@ -48,6 +49,7 @@ from backend.analysis.services.dependencies import (
 from backend.analysis.services.dmca_generator import DmcaGeneratorService
 from backend.analysis.services.evidence_report import EvidenceReportGenerator
 from backend.analysis.services.risk_assessment import RiskAssessmentService
+from backend.analysis.services.scan_summary import build_scan_summary
 from backend.api.router import router as analysis_router
 from backend.api.v1.analyze import analyze as analyze_candidates
 
@@ -246,6 +248,10 @@ class ScanResponse(BaseModel):
 
     discovery: DiscoveryResponse = Field(..., description="Discovery results.")
     analysis: AnalysisResponse = Field(..., description="Similarity, evidence, and risk outputs.")
+    summary: ScanSummary = Field(
+        ...,
+        description="Canonical scan summary used by the frontend for similarity, confidence, and source grouping.",
+    )
     report: EvidenceReport | None = Field(
         default=None,
         description="Generated evidence report for the top candidate.",
@@ -314,6 +320,12 @@ async def scan(
             risk_assessment=None,
         )
 
+    summary = build_scan_summary(
+        original_article=req.article_text,
+        discovery=discovery_response,
+        analysis=analysis_response,
+    )
+
     report = None
     dmca_notice = None
     if (
@@ -342,6 +354,7 @@ async def scan(
     return ScanResponse(
         discovery=discovery_response,
         analysis=analysis_response,
+        summary=summary,
         report=report,
         dmca_notice=dmca_notice,
     )

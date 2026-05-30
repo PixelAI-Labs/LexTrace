@@ -19,6 +19,11 @@ class CandidateArticle(BaseModel):
     url: str = Field(..., description="Canonical URL of the candidate article.")
     domain: str = Field(..., description="Root domain of the candidate URL (e.g. 'example.com').")
     title: str | None = Field(default=None, description="Article title extracted from the candidate page.")
+    authority: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional authority signal for the source when the backend can provide one.",
+    )
     rank_score: float = Field(
         ...,
         ge=0.0,
