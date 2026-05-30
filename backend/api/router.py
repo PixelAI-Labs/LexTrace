@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.analysis.api.v1.analyze import router as analyze_router
-from backend.analysis.api.v1.dmca import router as dmca_router
-from backend.analysis.api.v1.report import router as report_router
+from backend.api.v1.analyze import router as analyze_router
+from backend.api.v1.dmca import router as dmca_router
+from backend.api.v1.report import router as report_router
 
 router = APIRouter()
 router.include_router(analyze_router)

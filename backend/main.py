@@ -34,7 +34,7 @@ from backend.discovery.services.search_orchestrator import (
 )
 
 # ── Phase 8: Analysis Service ─────────────────────────────────────────────────
-from backend.analysis.api.router import router as analysis_router
+from backend.api.router import router as analysis_router
 
 logger = logging.getLogger("backend.main")
 

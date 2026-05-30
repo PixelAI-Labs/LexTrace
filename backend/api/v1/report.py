@@ -12,7 +12,7 @@ from backend.analysis.schemas.report import EvidenceReport, ReportFormat
 from backend.analysis.schemas.responses import CandidateAnalysis
 from backend.analysis.schemas.risk import RiskAssessment
 from backend.analysis.services.dependencies import get_report_generator
-from backend.analysis.evidence_report import EvidenceReportGenerator
+from backend.analysis.services.evidence_report import EvidenceReportGenerator
 
 router = APIRouter(prefix="/api/v1", tags=["report"])
 

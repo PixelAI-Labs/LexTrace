@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from backend.analysis.article_similarity import ArticleSimilarityAnalyzer, SimilarityConfig
-from backend.analysis.dmca_generator import DmcaGeneratorService
-from backend.analysis.evidence_report import EvidenceReportGenerator
-from backend.analysis.risk_assessment import RiskAssessmentService
+from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer, SimilarityConfig
+from backend.analysis.services.dmca_generator import DmcaGeneratorService
+from backend.analysis.services.evidence_report import EvidenceReportGenerator
+from backend.analysis.services.risk_assessment import RiskAssessmentService
 from backend.analysis.schemas.report import ReportFormat
 
 
