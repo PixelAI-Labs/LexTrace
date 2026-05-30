@@ -12,7 +12,7 @@ from backend.analysis.schemas.evidence import EvidenceSummary
 from backend.analysis.schemas.responses import CandidateAnalysis
 from backend.analysis.schemas.risk import RiskAssessment
 from backend.analysis.services.dependencies import get_dmca_generator
-from backend.analysis.dmca_generator import DmcaGeneratorService
+from backend.analysis.services.dmca_generator import DmcaGeneratorService
 
 router = APIRouter(prefix="/api/v1", tags=["dmca"])
 

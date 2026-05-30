@@ -13,8 +13,8 @@ from backend.analysis.schemas.requests import AnalysisRequest
 from backend.analysis.schemas.responses import AnalysisMetadata, AnalysisResponse
 from backend.analysis.schemas.similarity import SimilarityResult, SimilarityStrategy
 from backend.analysis.services.dependencies import get_analyzer, get_risk_service
-from backend.analysis.article_similarity import ArticleSimilarityAnalyzer
-from backend.analysis.risk_assessment import RiskAssessmentService
+from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer
+from backend.analysis.services.risk_assessment import RiskAssessmentService
 
 router = APIRouter(prefix="/api/v1", tags=["analysis"])
 
