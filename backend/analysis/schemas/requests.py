@@ -52,7 +52,7 @@ class AnalysisRequest(BaseModel):
         max_length=100_000,
         description="Full text of the original article to compare against.",
     )
-    candidates: list[CandidateInput] = Field(
+    candidate_articles: list[CandidateInput] = Field(
         ...,
         min_length=1,
         description="Candidate articles to analyze for similarity.",

@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import urllib.parse
-from typing import Any, AsyncIterator
+from typing import Any
 
 from duckduckgo_search import DDGS
 
@@ -31,14 +32,14 @@ def _root_domain(url: str) -> str:
     return domain
 
 
-async def _collect_ddg_results(
+def _collect_ddg_results(
     ddgs: DDGS,
     query_text: str,
     max_results: int,
 ) -> list[dict[str, Any]]:
-    """Poll the DuckDuckGo async generator until *max_results* are gathered."""
+    """Collect DuckDuckGo results from the sync generator."""
     results: list[dict[str, Any]] = []
-    async for raw in ddgs.text(query_text, max_results):
+    for raw in ddgs.text(query_text, max_results):
         results.append(dict(raw))
     return results
 
@@ -102,10 +103,11 @@ class DuckDuckGoProvider:
         max_results = min(query.max_results, self._cfg.max_results_per_query)
 
         try:
-            async with DDGS(timeout=self._cfg.request_timeout_seconds) as ddgs:
-                raw_results: list[dict[str, Any]] = await _collect_ddg_results(
-                    ddgs, q, max_results
-                )
+            def _run_query() -> list[dict[str, Any]]:
+                with DDGS(timeout=self._cfg.request_timeout_seconds) as ddgs:
+                    return _collect_ddg_results(ddgs, q, max_results)
+
+            raw_results = await asyncio.to_thread(_run_query)
         except Exception as exc:  # pragma: no cover — network errors are unrepresentable in unit tests
             raise DuckDuckGoError(str(exc)) from exc
 

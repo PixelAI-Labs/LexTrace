@@ -36,6 +36,11 @@ class CandidateArticle(BaseModel):
         max_length=500,
         description="First ~300 characters of the normalised candidate content.",
     )
+    content: str | None = Field(
+        default=None,
+        max_length=200_000,
+        description="Full extracted article content when include_content is true.",
+    )
     text_length: int = Field(..., ge=0, description="Total word count of the extracted candidate content.")
     publish_date: str | None = Field(
         default=None,

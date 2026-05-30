@@ -161,7 +161,7 @@ Notes:
 ```json
 {
   "original_article": "string",
-  "candidates": [
+  "candidate_articles": [
     {
       "url": "string",
       "title": "string | null",
@@ -181,9 +181,7 @@ Notes:
 
 ```json
 {
-  "analysis_id": "string",
-  "status": "completed | partial | failed",
-  "similarity_results": [
+  "results": [
     {
       "candidate_url": "string",
       "candidate_title": "string | null",
@@ -195,34 +193,20 @@ Notes:
         "fuzzy": 0.0,
         "semantic": 0.0
       },
-      "evidence": {
-        "summary": "string",
-        "matched_paragraphs": 0,
-        "matched_sentences": 0
-      },
-      "risk_level": "low | medium | high | critical"
+      "risk_level": "low | medium | high"
     }
   ],
-  "evidence_report": {
-    "total_matches": 0,
-    "high_confidence_matches": 0,
-    "notes": "string"
-  },
   "risk_assessment": {
-    "overall_risk": "low | medium | high | critical",
-    "reason": "string"
+    "risk_level": "low | medium | high",
+    "confidence_score": 0.0,
+    "reasoning": ["string"]
   },
-  "dmca_notice": {
-    "subject": "string",
-    "body": "string",
-    "generated_at": "ISO-8601 timestamp"
-  },
-  "metadata": {
-    "analysis_time_ms": 0,
-    "engine_version": "string",
-    "thresholds": {
-      "min_similarity": 0.0
-    }
+  "evidence": {
+    "total_candidates": 0,
+    "total_matched_paragraphs": 0,
+    "total_matched_sentences": 0,
+    "high_confidence_matches": 0,
+    "items": []
   }
 }
 ```
@@ -230,7 +214,6 @@ Notes:
 Model notes:
 
 - `breakdown` fields are optional until similarity strategies are implemented.
-- `dmca_notice` is a draft-only payload in Phase 1.
 
 ---
 

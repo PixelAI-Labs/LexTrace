@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 from backend.analysis.schemas.evidence import EvidenceSummary
-from backend.analysis.schemas.risk import RiskLevel
+from backend.analysis.schemas.risk import RiskAssessment, RiskLevel
 
 
 class SimilarityBreakdown(BaseModel):
@@ -79,28 +77,15 @@ class AnalysisMetadata(BaseModel):
 class AnalysisResponse(BaseModel):
     """POST /analyze response body."""
 
-    analysis_id: str = Field(..., description="Unique identifier for this analysis run.")
-    status: Literal["completed", "partial", "failed"] = Field(
-        ...,
-        description="Overall status of the analysis request.",
-    )
-    similarity_results: list[CandidateAnalysis] = Field(
+    results: list[CandidateAnalysis] = Field(
         default_factory=list,
         description="Per-candidate similarity analysis results.",
     )
-    evidence_report: EvidenceSummary | None = Field(
+    risk_assessment: RiskAssessment | None = Field(
         default=None,
-        description="Evidence report summarizing matched content and metadata.",
+        description="Risk assessment for the highest-risk candidate.",
     )
-    risk_assessment: dict[str, object] | None = Field(
+    evidence: EvidenceSummary | None = Field(
         default=None,
-        description="Risk assessment placeholder; detailed models arrive in Phase 3.",
-    )
-    dmca_notice: dict[str, str] | None = Field(
-        default=None,
-        description="DMCA notice placeholder; structured model arrives later.",
-    )
-    metadata: AnalysisMetadata = Field(
-        ...,
-        description="Timing and configuration metadata for this run.",
+        description="Evidence summary across matched candidates.",
     )

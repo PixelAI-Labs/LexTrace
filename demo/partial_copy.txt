@@ -1,0 +1,5 @@
+In 2026, local newsrooms are experimenting with small language models to speed up fact checking and source tracking. A typical workflow starts with a reporter drafting a story, then an editor runs the draft through a verification checklist that flags claims and missing citations.
+
+Community publishers are also building shared databases of corrections. These lists help teams avoid repeating errors and let readers see what changed. The focus is on transparency and fast updates rather than perfect automation.
+
+When copycat sites lift paragraphs, the safest signal is long exact matches across multiple sections. Short snippets can be incidental, but repeated structure and identical wording across several paragraphs strongly indicate copying.

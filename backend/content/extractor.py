@@ -267,10 +267,7 @@ def _is_robots_blocked(url: str) -> bool:
 
 def _do_extract(url: str, cfg: ContentExtractorConfig) -> ExtractionResult:
     """Perform a single extraction attempt with trafilatura."""
-    downloaded = trafilatura.fetch_url(
-        url,
-        timeout=cfg.timeout_seconds,
-    )
+    downloaded = trafilatura.fetch_url(url)
     if downloaded is None:
         return ExtractionResult(
             url=url,
@@ -289,7 +286,6 @@ def _do_extract(url: str, cfg: ContentExtractorConfig) -> ExtractionResult:
         downloaded,
         url=url,
         output_format="json",
-        extraction_mode=cfg.extraction_mode,
         include_comments=False,
         include_tables=True,
     )

@@ -144,10 +144,9 @@ async def _extract_with_semaphore(
     semaphore: asyncio.Semaphore,
     extractor: ContentExtractor,
     result: SearchResult,
-) -> tuple[SearchResult, ExtractionResult]:
+) -> ExtractionResult:
     async with semaphore:
-        extraction = await extractor.extract_async(result.url)
-        return result, extraction
+        return await extractor.extract_async(result.url)
 
 
 def _build_candidate(
@@ -164,6 +163,10 @@ def _build_candidate(
         return None
 
     title = article.title or search_result.title or None
+    content = article.text.strip() if article.text else ""
+    if len(content) > 200_000:
+        content = content[:200_000]
+    content_value = content or None
     preview = article.excerpt or search_result.description or ""
     if not preview and article.text:
         preview = article.text[:300]
@@ -181,6 +184,7 @@ def _build_candidate(
         rank_score=0.0,
         keyword_coverage=0.0,
         content_preview=preview,
+        content=content_value,
         text_length=article.text_length,
         publish_date=article.publish_date,
         language=article.language,

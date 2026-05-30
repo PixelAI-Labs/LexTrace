@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import time
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
 from backend.analysis.schemas.evidence import EvidenceItem, EvidenceSummary
 from backend.analysis.schemas.requests import AnalysisRequest
-from backend.analysis.schemas.responses import AnalysisMetadata, AnalysisResponse
+from backend.analysis.schemas.responses import AnalysisResponse
 from backend.analysis.schemas.similarity import SimilarityResult, SimilarityStrategy
 from backend.analysis.services.dependencies import get_analyzer, get_risk_service
-from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer
+from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer, SimilarityConfig
 from backend.analysis.services.risk_assessment import RiskAssessmentService
 
 router = APIRouter(prefix="/api/v1", tags=["analysis"])
@@ -29,18 +27,27 @@ def analyze(
     results, a consolidated evidence summary, and a risk assessment for the
     highest-risk candidate.
     """
-    start_ms = int(time.monotonic() * 1000)
-    analysis_id = str(uuid.uuid4())
     options = body.options
+    analyzer_instance = analyzer
+    if analyzer._config.enable_semantic != options.enable_semantic:
+        analyzer_instance = ArticleSimilarityAnalyzer(
+            SimilarityConfig(
+                thresholds=analyzer._config.thresholds,
+                weights=analyzer._config.weights,
+                paragraph_sentence_window=analyzer._config.paragraph_sentence_window,
+                enable_semantic=options.enable_semantic,
+                semantic_model_name=analyzer._config.semantic_model_name,
+            )
+        )
 
-    similarity_results = []
+    results = []
     evidence_items: list[EvidenceItem] = []
 
-    for candidate in body.candidates[: options.max_candidates]:
-        outcome = analyzer.analyze(body.original_article, candidate)
+    for candidate in body.candidate_articles[: options.max_candidates]:
+        outcome = analyzer_instance.analyze(body.original_article, candidate)
         if outcome.analysis.similarity_score < options.min_similarity:
             continue
-        similarity_results.append(outcome.analysis)
+        results.append(outcome.analysis)
         evidence_items.append(outcome.evidence)
 
     # ── evidence summary ──────────────────────────────────────────────────────
@@ -53,9 +60,9 @@ def analyze(
     )
 
     # ── risk assessment (highest-risk candidate) ──────────────────────────────
-    risk_payload: dict | None = None
-    if similarity_results:
-        top = max(similarity_results, key=lambda r: r.similarity_score)
+    risk_assessment = None
+    if results:
+        top = max(results, key=lambda r: r.similarity_score)
         _top_item = next(
             (e for e in evidence_items if e.candidate_url == top.candidate_url), None
         )
@@ -73,19 +80,10 @@ def analyze(
             matched_paragraphs=top_evidence.total_matched_paragraphs,
             matched_sentences=top_evidence.total_matched_sentences,
         )
-        assessment = risk_service.assess(sim_result, top_evidence)
-        risk_payload = assessment.model_dump()
-
-    elapsed_ms = int(time.monotonic() * 1000) - start_ms
+        risk_assessment = risk_service.assess(sim_result, top_evidence)
 
     return AnalysisResponse(
-        analysis_id=analysis_id,
-        status="completed" if similarity_results else "partial",
-        similarity_results=similarity_results,
-        evidence_report=evidence_summary,
-        risk_assessment=risk_payload,
-        metadata=AnalysisMetadata(
-            analysis_time_ms=elapsed_ms,
-            thresholds={"min_similarity": options.min_similarity},
-        ),
+        results=results,
+        evidence=evidence_summary,
+        risk_assessment=risk_assessment,
     )

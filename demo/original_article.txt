@@ -1,0 +1,5 @@
+In 2026, local newsrooms are experimenting with small language models to speed up fact checking and source tracking. A typical workflow starts with a reporter drafting a story, then an editor runs the draft through a verification checklist that flags claims and missing citations.
+
+The model does not publish content on its own. Instead, it highlights overlapping claims across public records, points out numbers that drift from official statistics, and suggests questions a journalist should ask a source. Editors still verify quotes, dates, and attribution by hand before publishing.
+
+When copycat sites lift paragraphs, the safest signal is long exact matches across multiple sections. Short snippets can be incidental, but repeated structure and identical wording across several paragraphs strongly indicate copying.

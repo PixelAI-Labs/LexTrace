@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.config import Settings, settings
 from backend.discovery.schemas.requests import DiscoveryRequest
@@ -34,7 +34,22 @@ from backend.discovery.services.search_orchestrator import (
 )
 
 # ── Phase 8: Analysis Service ─────────────────────────────────────────────────
-from backend.analysis.api.router import router as analysis_router
+from backend.analysis.schemas.dmca import DmcaNotice, DmcaRequest
+from backend.analysis.schemas.report import EvidenceReport, ReportFormat
+from backend.analysis.schemas.requests import AnalysisOptions, AnalysisRequest, CandidateInput
+from backend.analysis.schemas.responses import AnalysisResponse
+from backend.analysis.services.article_similarity import ArticleSimilarityAnalyzer
+from backend.analysis.services.dependencies import (
+    get_analyzer,
+    get_dmca_generator,
+    get_report_generator,
+    get_risk_service,
+)
+from backend.analysis.services.dmca_generator import DmcaGeneratorService
+from backend.analysis.services.evidence_report import EvidenceReportGenerator
+from backend.analysis.services.risk_assessment import RiskAssessmentService
+from backend.api.router import router as analysis_router
+from backend.api.v1.analyze import analyze as analyze_candidates
 
 logger = logging.getLogger("backend.main")
 
@@ -202,6 +217,133 @@ async def discover(
             search_time_ms=search_time_ms,
             total_time_ms=total_time_ms,
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scan endpoint (discovery -> analysis -> report -> dmca)
+# ---------------------------------------------------------------------------
+
+class ScanRequest(DiscoveryRequest):
+    """POST /scan request body."""
+
+    analysis_options: AnalysisOptions = Field(
+        default_factory=AnalysisOptions,
+        description="Analysis tuning options. Safe to omit.",
+    )
+    report_format: ReportFormat = Field(
+        default=ReportFormat.text,
+        description="Desired evidence report output format.",
+    )
+    dmca_request: DmcaRequest | None = Field(
+        default=None,
+        description="Optional DMCA notice inputs. When provided, a notice is generated.",
+    )
+
+
+class ScanResponse(BaseModel):
+    """POST /scan response body."""
+
+    discovery: DiscoveryResponse = Field(..., description="Discovery results.")
+    analysis: AnalysisResponse = Field(..., description="Similarity, evidence, and risk outputs.")
+    report: EvidenceReport | None = Field(
+        default=None,
+        description="Generated evidence report for the top candidate.",
+    )
+    dmca_notice: DmcaNotice | None = Field(
+        default=None,
+        description="Generated DMCA notice when dmca_request is provided.",
+    )
+
+
+@app.post(
+    "/api/v1/scan",
+    response_model=ScanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Run discovery + analysis + report in one call",
+    tags=["scan"],
+)
+async def scan(
+    req: ScanRequest,
+    orchestrator: Annotated[SearchOrchestrator, Depends(build_search_orchestrator)],
+    collector: Annotated[CandidateCollector, Depends(build_candidate_collector)],
+    analyzer: Annotated[ArticleSimilarityAnalyzer, Depends(get_analyzer)],
+    risk_service: Annotated[RiskAssessmentService, Depends(get_risk_service)],
+    report_generator: Annotated[EvidenceReportGenerator, Depends(get_report_generator)],
+    dmca_generator: Annotated[DmcaGeneratorService, Depends(get_dmca_generator)],
+) -> ScanResponse:
+    discovery_options = req.options.model_copy(update={"include_content": True})
+    discovery_request = DiscoveryRequest(
+        article_text=req.article_text,
+        title=req.title,
+        source_url=req.source_url,
+        options=discovery_options,
+    )
+    discovery_response = await discover(
+        discovery_request,
+        orchestrator,
+        collector,
+    )
+
+    candidate_inputs = [
+        CandidateInput(
+            url=candidate.url,
+            title=candidate.title,
+            content=candidate.content,
+            domain=candidate.domain,
+        )
+        for candidate in discovery_response.candidates
+        if candidate.content
+    ]
+
+    if candidate_inputs:
+        analysis_request = AnalysisRequest(
+            original_article=req.article_text,
+            candidate_articles=candidate_inputs,
+            options=req.analysis_options,
+        )
+        analysis_response = analyze_candidates(
+            analysis_request,
+            analyzer,
+            risk_service,
+        )
+    else:
+        analysis_response = AnalysisResponse(
+            results=[],
+            evidence=None,
+            risk_assessment=None,
+        )
+
+    report = None
+    dmca_notice = None
+    if (
+        analysis_response.results
+        and analysis_response.risk_assessment
+        and analysis_response.evidence
+    ):
+        top_candidate = max(
+            analysis_response.results,
+            key=lambda item: item.similarity_score,
+        )
+        report = report_generator.generate(
+            top_candidate,
+            analysis_response.evidence,
+            analysis_response.risk_assessment,
+            report_format=req.report_format,
+        )
+        if req.dmca_request:
+            dmca_notice = dmca_generator.generate(
+                req.dmca_request,
+                analysis_response.risk_assessment,
+                analysis_response.evidence,
+                analysis=top_candidate,
+            )
+
+    return ScanResponse(
+        discovery=discovery_response,
+        analysis=analysis_response,
+        report=report,
+        dmca_notice=dmca_notice,
     )
 
 
