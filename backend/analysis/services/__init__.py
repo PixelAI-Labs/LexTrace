@@ -7,6 +7,11 @@ from backend.analysis.services.article_similarity import (
     SimilarityThresholds,
     SimilarityWeights,
 )
+from backend.analysis.services.risk_assessment import (
+    RiskAssessmentService,
+    RiskAssessmentThresholds,
+    RiskAssessmentWeights,
+)
 
 __all__ = [
     "ArticleSimilarityAnalyzer",
@@ -14,4 +19,7 @@ __all__ = [
     "SimilarityConfig",
     "SimilarityThresholds",
     "SimilarityWeights",
+    "RiskAssessmentService",
+    "RiskAssessmentThresholds",
+    "RiskAssessmentWeights",
 ]

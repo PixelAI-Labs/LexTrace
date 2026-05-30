@@ -15,6 +15,8 @@ from backend.analysis.schemas import (
     SimilarityBreakdown,
     SimilarityResult,
     SimilarityStrategy,
+    RiskAssessment,
+    RiskLevel,
 )
 from backend.analysis.services import (
     ArticleSimilarityAnalyzer,
@@ -22,6 +24,9 @@ from backend.analysis.services import (
     SimilarityConfig,
     SimilarityThresholds,
     SimilarityWeights,
+    RiskAssessmentService,
+    RiskAssessmentThresholds,
+    RiskAssessmentWeights,
 )
 
 __all__ = [
@@ -39,9 +44,14 @@ __all__ = [
     "SimilarityBreakdown",
     "SimilarityResult",
     "SimilarityStrategy",
+    "RiskAssessment",
+    "RiskLevel",
     "ArticleSimilarityAnalyzer",
     "ArticleSimilarityOutcome",
     "SimilarityConfig",
     "SimilarityThresholds",
     "SimilarityWeights",
+    "RiskAssessmentService",
+    "RiskAssessmentThresholds",
+    "RiskAssessmentWeights",
 ]

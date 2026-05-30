@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 
 from backend.analysis.schemas.evidence import EvidenceItem, MatchedParagraph, MatchedSentence
 from backend.analysis.schemas.requests import CandidateInput
-from backend.analysis.schemas.responses import CandidateAnalysis, RiskLevel, SimilarityBreakdown
+from backend.analysis.schemas.responses import CandidateAnalysis, SimilarityBreakdown
+from backend.analysis.schemas.risk import RiskLevel
 from backend.analysis.schemas.similarity import SimilarityResult, SimilarityStrategy
 from backend.discovery.utils.text_utils import extract_sentences, normalize, strip_html
 
@@ -37,7 +38,6 @@ class SimilarityThresholds:
     max_candidate_paragraphs: int = 80
     risk_medium: float = 0.35
     risk_high: float = 0.5
-    risk_critical: float = 0.8
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,8 +554,6 @@ def _count_high_confidence(matches: list[MatchedSentence], thresholds: Similarit
 
 
 def _risk_level(score: float, thresholds: SimilarityThresholds) -> RiskLevel:
-    if score >= thresholds.risk_critical:
-        return RiskLevel.critical
     if score >= thresholds.risk_high:
         return RiskLevel.high
     if score >= thresholds.risk_medium:

@@ -2,21 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from backend.analysis.schemas.evidence import EvidenceSummary
-
-
-class RiskLevel(str, Enum):
-    """Risk classification for infringement likelihood."""
-
-    low = "low"
-    medium = "medium"
-    high = "high"
-    critical = "critical"
+from backend.analysis.schemas.risk import RiskLevel
 
 
 class SimilarityBreakdown(BaseModel):
