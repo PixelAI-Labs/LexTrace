@@ -20,6 +20,7 @@ readability-lxml>=0.8.0
 # Text similarity / ranking
 scikit-learn>=1.5.0
 scipy>=1.13.0
+sentence-transformers>=2.6.0
 
 # Structured logging
 python-json-logger>=2.0.0

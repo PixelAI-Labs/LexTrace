@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import lru_cache
 import re
 from typing import Iterable
 
@@ -26,6 +27,7 @@ class SimilarityThresholds:
     sentence_match: float = 0.84
     paragraph_match: float = 0.8
     exact_match: float = 0.97
+    semantic_match: float = 0.6
     min_sentence_chars: int = 20
     min_paragraph_chars: int = 80
     min_token_overlap: float = 0.4
@@ -42,8 +44,9 @@ class SimilarityThresholds:
 class SimilarityWeights:
     """Weights used to combine similarity signals."""
 
-    tfidf_weight: float = 0.6
+    tfidf_weight: float = 0.5
     copy_weight: float = 0.4
+    semantic_weight: float = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +56,8 @@ class SimilarityConfig:
     thresholds: SimilarityThresholds = SimilarityThresholds()
     weights: SimilarityWeights = SimilarityWeights()
     paragraph_sentence_window: int = 3
+    enable_semantic: bool = True
+    semantic_model_name: str = "all-MiniLM-L6-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +130,17 @@ class ArticleSimilarityAnalyzer:
             thresholds,
         )
 
+        semantic_matches: list[MatchedParagraph] = []
+        semantic_score = 0.0
+        if self._config.enable_semantic:
+            semantic_matches, semantic_score = _semantic_paragraph_matches(
+                original_paragraphs,
+                candidate_paragraphs,
+                thresholds,
+                self._config.semantic_model_name,
+            )
+            paragraph_matches = _merge_paragraph_matches(paragraph_matches, semantic_matches)
+
         exact_chars, fuzzy_chars = _match_char_totals(sentence_matches)
         total_chars = max(len(original_text), 1)
         exact_score = min(exact_chars / total_chars, 1.0)
@@ -132,12 +148,12 @@ class ArticleSimilarityAnalyzer:
         copied_percentage = min(exact_score + fuzzy_score, 1.0)
 
         tfidf_score = _tfidf_similarity(original_text, candidate_text)
-        similarity_score = _weighted_similarity(tfidf_score, copied_percentage, weights)
+        similarity_score = _weighted_similarity(tfidf_score, copied_percentage, semantic_score, weights)
 
         breakdown = SimilarityBreakdown(
             exact=exact_score,
             fuzzy=fuzzy_score,
-            semantic=0.0,
+            semantic=semantic_score,
         )
 
         risk_level = _risk_level(similarity_score, thresholds)
@@ -164,15 +180,17 @@ class ArticleSimilarityAnalyzer:
         )
 
         similarity_result = SimilarityResult(
-            strategy=SimilarityStrategy.fuzzy,
+            strategy=SimilarityStrategy.semantic if self._config.enable_semantic else SimilarityStrategy.fuzzy,
             similarity_score=similarity_score,
             copied_percentage=copied_percentage,
             matched_paragraphs=len(paragraph_matches),
             matched_sentences=len(sentence_matches),
             metadata={
                 "tfidf_score": round(tfidf_score, 4),
+                "semantic_score": round(semantic_score, 4),
                 "sentence_match_threshold": thresholds.sentence_match,
                 "paragraph_match_threshold": thresholds.paragraph_match,
+                "semantic_match_threshold": thresholds.semantic_match,
             },
         )
 
@@ -412,6 +430,106 @@ def _paragraph_match_type(
     return types.pop()
 
 
+@lru_cache(maxsize=2)
+def _get_semantic_model(model_name: str):
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise RuntimeError(
+            "sentence-transformers is not installed. "
+            "Install it with `pip install sentence-transformers`."
+        ) from exc
+    return SentenceTransformer(model_name)
+
+
+def _semantic_paragraph_matches(
+    original: list[_ParagraphSegment],
+    candidates: list[_ParagraphSegment],
+    thresholds: SimilarityThresholds,
+    model_name: str,
+) -> tuple[list[MatchedParagraph], float]:
+    if not original or not candidates:
+        return [], 0.0
+
+    model = _get_semantic_model(model_name)
+    try:
+        from sentence_transformers import util
+    except ImportError as exc:
+        raise RuntimeError(
+            "sentence-transformers is not installed. "
+            "Install it with `pip install sentence-transformers`."
+        ) from exc
+
+    original_texts = [segment.text for segment in original]
+    candidate_texts = [segment.text for segment in candidates]
+    embeddings = model.encode(
+        original_texts + candidate_texts,
+        convert_to_tensor=True,
+        normalize_embeddings=True,
+    )
+    original_embeddings = embeddings[: len(original_texts)]
+    candidate_embeddings = embeddings[len(original_texts) :]
+    scores = util.cos_sim(original_embeddings, candidate_embeddings)
+
+    semantic_matches: list[MatchedParagraph] = []
+    best_scores: list[float] = []
+    used_candidates: set[int] = set()
+
+    for original_index, row in enumerate(scores):
+        best_score = float(row.max().item())
+        best_scores.append(best_score)
+        best_candidate_index = int(row.argmax().item())
+
+        if best_score < thresholds.semantic_match:
+            continue
+        if best_candidate_index in used_candidates:
+            continue
+
+        used_candidates.add(best_candidate_index)
+        original_segment = original[original_index]
+        candidate_segment = candidates[best_candidate_index]
+
+        semantic_matches.append(
+            MatchedParagraph(
+                original_text=original_segment.text,
+                candidate_text=candidate_segment.text,
+                original_start=original_segment.start,
+                original_end=original_segment.end,
+                candidate_start=candidate_segment.start,
+                candidate_end=candidate_segment.end,
+                original_paragraph_index=original_segment.index,
+                candidate_paragraph_index=candidate_segment.index,
+                similarity_score=best_score,
+                match_type="semantic",
+                matched_sentences=[],
+            )
+        )
+
+    semantic_score = float(sum(best_scores) / len(best_scores)) if best_scores else 0.0
+    return semantic_matches, semantic_score
+
+
+def _merge_paragraph_matches(
+    existing: list[MatchedParagraph],
+    incoming: list[MatchedParagraph],
+) -> list[MatchedParagraph]:
+    if not incoming:
+        return existing
+
+    seen: set[tuple[int | None, int | None, str]] = {
+        (match.original_paragraph_index, match.candidate_paragraph_index, match.match_type)
+        for match in existing
+    }
+    merged = list(existing)
+    for match in incoming:
+        key = (match.original_paragraph_index, match.candidate_paragraph_index, match.match_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(match)
+    return merged
+
+
 def _match_char_totals(matches: list[MatchedSentence]) -> tuple[int, int]:
     exact_chars = 0
     fuzzy_chars = 0
@@ -437,8 +555,17 @@ def _risk_level(score: float, thresholds: SimilarityThresholds) -> RiskLevel:
     return RiskLevel.low
 
 
-def _weighted_similarity(tfidf_score: float, copied_percentage: float, weights: SimilarityWeights) -> float:
-    combined = (tfidf_score * weights.tfidf_weight) + (copied_percentage * weights.copy_weight)
+def _weighted_similarity(
+    tfidf_score: float,
+    copied_percentage: float,
+    semantic_score: float,
+    weights: SimilarityWeights,
+) -> float:
+    combined = (
+        (tfidf_score * weights.tfidf_weight)
+        + (copied_percentage * weights.copy_weight)
+        + (semantic_score * weights.semantic_weight)
+    )
     return min(max(combined, 0.0), 1.0)
 
 
