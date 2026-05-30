@@ -1,0 +1,31 @@
+Subject: DMCA Takedown Notice for {infringing_url}
+
+To Whom It May Concern,
+
+I, {creator_name}, am the owner (or authorized representative) of the copyrighted work located at:
+{original_url}
+
+It has come to my attention that the following URL is an unauthorized copy of my copyrighted work:
+{infringing_url}
+
+Summary of findings:
+- Risk level: {risk_level}
+- Similarity score: {similarity_score}
+- Copied percentage: {copied_percentage}
+- Matched paragraphs: {matched_paragraphs}
+- Matched sentences: {matched_sentences}
+
+Good faith statement:
+I have a good faith belief that the use of the material described above is not authorized by the copyright owner,
+its agent, or the law.
+
+Accuracy statement:
+The information in this notice is accurate and, under penalty of perjury, I am the copyright owner or am
+authorized to act on behalf of the owner of an exclusive right that is allegedly infringed.
+
+Please remove or disable access to the infringing material immediately.
+
+Sincerely,
+{creator_name}
+{creator_address}
+{creator_email}

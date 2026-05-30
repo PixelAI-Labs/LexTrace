@@ -1,6 +1,7 @@
 """Schemas package for the Analysis Service."""
 
 from backend.analysis.schemas.evidence import EvidenceItem, EvidenceSummary, MatchedParagraph, MatchedSentence
+from backend.analysis.schemas.dmca import DmcaNotice, DmcaRequest
 from backend.analysis.schemas.report import EvidenceReport, ReportFormat
 from backend.analysis.schemas.requests import AnalysisOptions, AnalysisRequest, CandidateInput
 from backend.analysis.schemas.responses import (
@@ -19,6 +20,8 @@ __all__ = [
     "AnalysisResponse",
     "CandidateAnalysis",
     "CandidateInput",
+    "DmcaNotice",
+    "DmcaRequest",
     "EvidenceItem",
     "EvidenceReport",
     "EvidenceSummary",
