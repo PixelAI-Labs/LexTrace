@@ -33,9 +33,9 @@ class SimilarityThresholds:
     max_paragraph_matches: int = 40
     max_candidate_sentences: int = 250
     max_candidate_paragraphs: int = 80
-    risk_medium: float = 0.55
-    risk_high: float = 0.7
-    risk_critical: float = 0.85
+    risk_medium: float = 0.35
+    risk_high: float = 0.5
+    risk_critical: float = 0.8
 
 
 @dataclass(frozen=True, slots=True)
