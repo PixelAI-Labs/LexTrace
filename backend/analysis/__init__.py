@@ -7,6 +7,10 @@ from backend.analysis.schemas import (
     AnalysisResponse,
     CandidateAnalysis,
     CandidateInput,
+    EvidenceItem,
+    EvidenceSummary,
+    MatchedParagraph,
+    MatchedSentence,
     RiskLevel,
     SimilarityBreakdown,
 )
@@ -18,6 +22,10 @@ __all__ = [
     "AnalysisResponse",
     "CandidateAnalysis",
     "CandidateInput",
+    "EvidenceItem",
+    "EvidenceSummary",
+    "MatchedParagraph",
+    "MatchedSentence",
     "RiskLevel",
     "SimilarityBreakdown",
 ]

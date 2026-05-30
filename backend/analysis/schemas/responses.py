@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from backend.analysis.schemas.evidence import EvidenceSummary
+
 
 class RiskLevel(str, Enum):
     """Risk classification for infringement likelihood."""
@@ -95,9 +97,9 @@ class AnalysisResponse(BaseModel):
         default_factory=list,
         description="Per-candidate similarity analysis results.",
     )
-    evidence_report: dict[str, object] | None = Field(
+    evidence_report: EvidenceSummary | None = Field(
         default=None,
-        description="Evidence report placeholder; detailed models arrive in Phase 3.",
+        description="Evidence report summarizing matched content and metadata.",
     )
     risk_assessment: dict[str, object] | None = Field(
         default=None,
