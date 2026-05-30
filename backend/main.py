@@ -33,6 +33,9 @@ from backend.discovery.services.search_orchestrator import (
     build_orchestrator_config,
 )
 
+# ── Phase 8: Analysis Service ─────────────────────────────────────────────────
+from backend.analysis.api.router import router as analysis_router
+
 logger = logging.getLogger("backend.main")
 
 
@@ -43,10 +46,10 @@ logger = logging.getLogger("backend.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and shutdown events."""
-    logger.info("CopyGuard Discovery Service starting — version 0.1.0")
+    logger.info("CopyGuard Backend starting — version 0.1.0")
     logger.info(f"Config (redacted): {settings.to_public_dict()}")
     yield
-    logger.info("CopyGuard Discovery Service shutting down")
+    logger.info("CopyGuard Backend shutting down")
 
 
 # ---------------------------------------------------------------------------
@@ -61,12 +64,7 @@ def _build_settings() -> Settings:
 def build_search_orchestrator(
     settings_obj: Annotated[Settings, Depends(_build_settings)],
 ) -> SearchOrchestrator:
-    """Build a SearchOrchestrator instance from settings.
-
-    The SearchOrchestrator takes providers via __init__ and the full
-    SearchOrchestratorConfig via .run(), so config building is deferred
-    to the endpoint where request options are available.
-    """
+    """Build a SearchOrchestrator instance from settings."""
     return SearchOrchestrator(settings_obj=settings_obj)
 
 
@@ -84,7 +82,10 @@ def build_candidate_collector(
 
 app = FastAPI(
     title="CopyGuard API",
-    description="AI-Powered Article Piracy Detection — Discovery Service",
+    description=(
+        "AI-Powered Article Piracy Detection — "
+        "Discovery, Similarity Analysis, Risk Assessment & DMCA Generation"
+    ),
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -97,6 +98,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Phase 8: mount analysis routes (/api/v1/analyze, /api/v1/report, /api/v1/dmca)
+app.include_router(analysis_router)
+
 
 # ---------------------------------------------------------------------------
 # Discovery endpoint
@@ -107,6 +111,7 @@ app.add_middleware(
     response_model=DiscoveryResponse,
     status_code=status.HTTP_200_OK,
     summary="Discover suspected article copies",
+    tags=["discovery"],
     response_description=(
         "Ranked list of candidate articles suspected of being infringing copies "
         "of the submitted article."
@@ -167,9 +172,7 @@ async def discover(
 
         candidates = collection_result.candidates
         extraction_time_ms = collection_result.statistics.extraction_time_ms
-        # Failures are available for logging/audit but not returned in response
     else:
-        # include_content=False: skip extraction, return empty candidate list
         collection_result = None
 
     total_time_ms = int(time.perf_counter() * 1000) - total_start_ms
@@ -183,7 +186,7 @@ async def discover(
     elif total_urls_collected == 0:
         discovery_status = "failed"
     else:
-        discovery_status = "completed"  # no candidates but all extractions returned empty body
+        discovery_status = "completed"
 
     return DiscoveryResponse(
         request_id=request_id,
@@ -216,7 +219,7 @@ async def health():
     return {
         "status": "healthy",
         "version": "0.1.0",
-        "service": "CopyGuard Discovery",
+        "service": "CopyGuard",
         "dependencies": {
             "google_search": (
                 "configured"
@@ -224,12 +227,13 @@ async def health():
                 else "missing_api_key"
             ),
             "content_extraction": "ok",
+            "analysis_service": "ok",
         },
     }
 
 
 # ---------------------------------------------------------------------------
-# Legacy stub endpoints (to be replaced in later phases)
+# Legacy stub endpoints (replaced in later phases)
 # ---------------------------------------------------------------------------
 
 class ScanRequest(BaseModel):
@@ -245,40 +249,40 @@ class _DMCAReportRequest(BaseModel):
     evidence_id: str
 
 
-@app.post("/scan", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.post("/scan", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def start_scan(req: ScanRequest):
     return {"detail": "Not implemented — use POST /api/v1/discover"}
 
 
-@app.get("/scan/{scan_id}/progress", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.get("/scan/{scan_id}/progress", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def scan_progress(scan_id: str):
     return {"detail": "Not implemented"}
 
 
-@app.get("/scan/{scan_id}/candidates", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.get("/scan/{scan_id}/candidates", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def scan_candidates(scan_id: str):
     return {"detail": "Not implemented"}
 
 
-@app.get("/scan/{scan_id}/results", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.get("/scan/{scan_id}/results", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def scan_results(scan_id: str):
     return {"detail": "Not implemented"}
 
 
-@app.get("/report/{report_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.get("/report/{report_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def get_report(report_id: str):
     return {"detail": "Not implemented"}
 
 
-@app.post("/dmca/generate", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.post("/dmca/generate", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def generate_dmca(req: DMCARequest):
-    return {"detail": "Not implemented"}
+    return {"detail": "Not implemented — use POST /api/v1/dmca"}
 
 
-@app.post("/api/v1/dmca/report", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@app.post("/api/v1/dmca/report", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["legacy"])
 async def create_dmca_report(req: _DMCAReportRequest):
-    """Generate a DMCA takedown report for a confirmed infringing URL."""
-    return {"detail": "Not implemented"}
+    """Replaced by POST /api/v1/dmca (Phase 8)."""
+    return {"detail": "Not implemented — use POST /api/v1/dmca"}
 
 
 # ---------------------------------------------------------------------------
