@@ -52,10 +52,6 @@ class AnalysisRequest(BaseModel):
         max_length=100_000,
         description="Full text of the original article to compare against.",
     )
-    original_url: str | None = Field(
-        default=None,
-        description="Optional canonical URL for the original article when the caller has it.",
-    )
     candidate_articles: list[CandidateInput] = Field(
         ...,
         min_length=1,

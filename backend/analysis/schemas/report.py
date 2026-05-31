@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Literal
-from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -37,19 +36,12 @@ class EvidenceReportEntry(BaseModel):
 class EvidenceReportSummary(BaseModel):
     """Summary section for evidence report output."""
 
-    original_url: str | None = Field(default=None, description="Canonical URL of the original article when available.")
-    detected_url: str | None = Field(default=None, description="URL of the detected matching article.")
-    scan_timestamp: datetime | None = Field(default=None, description="Timestamp when the scan evidence snapshot was created.")
     similarity_score: float = Field(
         ...,
         ge=0.0,
         le=1.0,
         description="Overall similarity score for the candidate.",
     )
-    exact_match_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Exact match score.")
-    paragraph_match_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Paragraph match score.")
-    ngram_score: float = Field(default=0.0, ge=0.0, le=1.0, description="N-gram score.")
-    embedding_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Embedding score.")
     copied_percentage: float = Field(
         ...,
         ge=0.0,

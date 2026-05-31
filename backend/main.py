@@ -322,7 +322,6 @@ async def scan(
     if candidate_inputs:
         analysis_request = AnalysisRequest(
             original_article=req.article_text,
-            original_url=req.source_url,
             candidate_articles=candidate_inputs,
             options=req.analysis_options,
         )

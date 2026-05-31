@@ -14,10 +14,6 @@ class ScanSourceSummary(BaseModel):
     url: str = Field(..., description="Canonical URL for the source.")
     title: str | None = Field(default=None, description="Source title if available.")
     match_percent: float = Field(..., ge=0, le=100, description="Match percentage as a float to preserve precision.")
-    exact_match_score: float = Field(default=0.0, ge=0, le=100, description="Exact match percentage.")
-    paragraph_match_score: float = Field(default=0.0, ge=0, le=100, description="Paragraph match percentage.")
-    ngram_score: float = Field(default=0.0, ge=0, le=100, description="N-gram percentage.")
-    embedding_score: float = Field(default=0.0, ge=0, le=100, description="Semantic embedding percentage.")
     words_matched: int = Field(..., ge=0, description="Estimated matched word count.")
     authority: int | None = Field(
         default=None,
@@ -31,10 +27,6 @@ class ScanSummary(BaseModel):
     """Backend-owned summary of the similarity analysis run."""
 
     similarity: float = Field(..., ge=0, le=100, description="Top similarity percentage as a float to preserve precision.")
-    exact_match_score: float = Field(default=0.0, ge=0, le=100, description="Top exact match percentage.")
-    paragraph_match_score: float = Field(default=0.0, ge=0, le=100, description="Top paragraph match percentage.")
-    ngram_score: float = Field(default=0.0, ge=0, le=100, description="Top n-gram match percentage.")
-    embedding_score: float = Field(default=0.0, ge=0, le=100, description="Top semantic embedding percentage.")
     confidence: int = Field(
         ..., ge=0, le=100, description="Independent confidence in the analysis pipeline, not the similarity score."
     )

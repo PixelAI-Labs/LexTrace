@@ -181,13 +181,40 @@ Async Concurrency Strategy
 4. Database Schema
 Note: For the Discovery Service, no database is required for initial implementation. Candidates are returned directly to the caller. State is held in-memory for the duration of a request.
 
-If persistence is needed later (for caching or rate limit tracking), use Redis keys.
+If persistence is needed later (for caching, job history, or rate limit tracking), add these tables.
 
 Optional Persistence Layer (Future)
 
 -- Redis (recommended for caching + rate limiting)
 -- Key: "discovery:{request_id}"          → TTL 1 hour
 -- Key: "rate:{api_key}:{minute}"        → TTL 60s
+
+-- Optional PostgreSQL tables (for job history)
+-- Only needed if /discover becomes async (fire-and-forget with job ID)
+
+CREATE TABLE discovery_jobs (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    status        TEXT         NOT NULL DEFAULT 'pending',  -- pending | running | completed | failed
+    original_text TEXT         NOT NULL,
+    title         TEXT,
+    source_url    TEXT,
+    config        JSONB,
+    error_message TEXT
+);
+
+CREATE TABLE candidate_articles (
+    id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    discovery_id    UUID         NOT NULL REFERENCES discovery_jobs(id),
+    url             TEXT         NOT NULL,
+    rank_score      FLOAT        NOT NULL,
+    similarity_score FLOAT,
+    title           TEXT,
+    extracted_text  TEXT,
+    text_length     INTEGER,
+    domain          TEXT,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
 For the hackathon implementation, an in-memory cache with TTL is sufficient.
 
 5. API Contract Definitions
