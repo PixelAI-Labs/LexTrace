@@ -78,7 +78,9 @@ const heroPreviewLines = [
 
 const sectionViewport = { once: true, margin: '-80px' }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.PROD 
+  ? 'https://dj29-lextrace-api.hf.space' 
+  : 'http://localhost:8000';
 
 function parseSourceUrl(text: string) {
   try {
