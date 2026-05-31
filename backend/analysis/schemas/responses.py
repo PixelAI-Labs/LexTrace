@@ -17,17 +17,23 @@ class SimilarityBreakdown(BaseModel):
         le=1.0,
         description="Exact match contribution.",
     )
-    fuzzy: float = Field(
+    paragraph: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Fuzzy match contribution.",
+        description="Paragraph-level match contribution.",
     )
-    semantic: float = Field(
+    ngram: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Semantic similarity contribution.",
+        description="N-gram similarity contribution.",
+    )
+    embedding: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Semantic embedding contribution.",
     )
 
 
@@ -37,11 +43,41 @@ class CandidateAnalysis(BaseModel):
     candidate_url: str = Field(..., description="Candidate article URL.")
     candidate_title: str | None = Field(default=None, description="Candidate article title, if available.")
     domain: str = Field(..., description="Root domain of the candidate URL.")
+    overall_similarity: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Weighted overall similarity across all signals.",
+    )
+    exact_match_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Exact match score for the candidate.",
+    )
+    paragraph_match_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Paragraph-level match score for the candidate.",
+    )
+    ngram_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="N-gram similarity score for the candidate.",
+    )
+    embedding_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Semantic embedding similarity score for the candidate.",
+    )
     similarity_score: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Overall similarity score between original and candidate.",
+        description="Backward-compatible alias for overall similarity.",
     )
     copied_percentage: float = Field(
         ...,

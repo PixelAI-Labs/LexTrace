@@ -20,13 +20,6 @@ import {
 import { parseScanResponse } from './lib/scanApi'
 import type { ScanResponse, SourceEntry } from './lib/scanApi'
 
-type ComparisonRow = {
-  original: string
-  matched: string
-  matchType: string
-  key: string
-}
-
 const DEMO_ARTICLE_TEXT =
   'LexTrace helps publishers detect unauthorized copies of their articles across the web. ' +
   'Paste your article text here to run discovery, similarity analysis, and evidence reporting in one scan.'
@@ -113,9 +106,13 @@ function sourceBadgeClass(classification: string) {
   return 'border-white/10 bg-white/5 text-[--color-muted]'
 }
 
+function sourceLabel(source: SourceEntry) {
+  return source.title?.trim() || source.url
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<
-    'analysis' | 'discovery' | 'comparison' | 'history'
+    'analysis' | 'discovery' | 'dmca'
   >('analysis')
   const [scanProgress, setScanProgress] = useState(0)
   const [showScanResult, setShowScanResult] = useState(false)
@@ -296,7 +293,24 @@ function App() {
     [displaySources],
   )
 
-  const topEvidence = liveScan?.analysis.evidence?.items[0] ?? null
+  const dmcaNoticeText = useMemo(() => {
+    if (!liveScan?.dmca_notice) {
+      return null
+    }
+    return JSON.stringify(liveScan.dmca_notice, null, 2)
+  }, [liveScan])
+
+  const handleCopyDmca = async () => {
+    if (!dmcaNoticeText) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(dmcaNoticeText)
+    } catch {
+      setBackendError('Unable to copy DMCA notice. Please copy it manually from the panel.')
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[--color-bg] text-[--color-text]">
@@ -701,8 +715,7 @@ function App() {
           A streamlined workflow designed for editorial, legal, and compliance teams.
         </p>
 
-        <div className="mt-16 flex flex-col gap-8 md:flex-row md:items-start md:gap-0">
-          <div className="hidden flex-1 border-t border-dashed border-[--color-border] md:block" />
+        <div className="mt-16 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
               step: 'STEP 01',
@@ -731,18 +744,18 @@ function App() {
           ].map((step) => (
             <div
               key={step.step}
-              className="flex max-w-55 flex-1 flex-col"
+              className="flex h-full flex-col rounded-xl border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-5"
             >
               <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[--color-blue]">
                 {step.step}
               </div>
-              <div className="mt-3 flex h-12 w-12 items-center justify-center rounded-full border border-[--color-blue]/30 bg-[--color-blue]/10">
+              <div className="mt-4 flex h-12 w-12 items-center justify-center rounded-full border border-[--color-blue]/30 bg-[--color-blue]/10">
                 <step.icon size={20} className="text-[--color-blue]" />
               </div>
               <div className="mt-4 text-[16px] font-semibold text-white">
                 {step.title}
               </div>
-              <p className="mt-2 text-[13px] leading-[1.6] text-[--color-muted]">
+              <p className="mt-2 flex-1 text-[13px] leading-[1.6] text-[--color-muted]">
                 {step.description}
               </p>
             </div>
@@ -773,10 +786,9 @@ function App() {
           <div className="flex items-center justify-between border-b border-[--color-border] px-6 py-3">
             <div className="flex flex-wrap gap-6 text-[12px] font-mono uppercase tracking-widest">
               {[
-                { label: 'Similarity Analysis', value: 'analysis' },
-                { label: 'Source Discovery', value: 'discovery' },
-                { label: 'Comparison', value: 'comparison' },
-                { label: 'Scan History', value: 'history' },
+                { label: 'New Scan', value: 'analysis' },
+                { label: 'Results', value: 'discovery' },
+                { label: 'DMCA Actions', value: 'dmca' },
               ].map((tab) => (
                 <button
                   key={tab.value}
@@ -924,6 +936,16 @@ function App() {
                         </div>
                         {liveScan?.summary.insight ?? 'Run an analysis to see backend-derived insights.'}
                       </div>
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('dmca')}
+                          className="inline-flex items-center gap-2 rounded-md bg-[--color-blue] px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] text-white transition hover:bg-[--color-blue-bright]"
+                        >
+                          <FileText size={14} />
+                          Generate DMCA Notice
+                        </button>
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -943,12 +965,11 @@ function App() {
                     <div className="mb-3 text-[10px] font-mono uppercase tracking-[0.2em] text-[--color-blue]">
                       Matched Sources
                     </div>
-                    <div className="grid grid-cols-6 gap-4 border-b border-[--color-border] pb-3 text-[10px] font-mono uppercase tracking-[0.15em] text-[--color-muted]">
-                      <div className="col-span-2">Source</div>
-                      <div>Match %</div>
-                      <div>Classification</div>
-                      <div>Words</div>
-                      <div>Authority</div>
+                    <div className="grid grid-cols-12 gap-4 border-b border-[--color-border] pb-3 text-[10px] font-mono uppercase tracking-[0.15em] text-[--color-muted]">
+                      <div className="col-span-4">Article Title</div>
+                      <div className="col-span-3">Domain</div>
+                      <div className="col-span-2">Similarity</div>
+                      <div className="col-span-3">Direct Link</div>
                     </div>
                     <motion.div
                       className="mt-4 space-y-4"
@@ -960,14 +981,25 @@ function App() {
                         <motion.div
                           key={source.url}
                           variants={fadeUp}
-                          className="grid grid-cols-6 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/2"
+                          className="grid grid-cols-12 items-center gap-4 border-b border-[--color-border] py-4 text-[12px] text-white transition hover:bg-white/2"
                         >
-                          <div className="col-span-2 flex items-center gap-2 font-mono text-[13px]">
-                            <Globe size={14} className="text-[--color-muted]" />
-                            <span className="truncate">{source.domain}</span>
+                          <div className="col-span-4 min-w-0">
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block truncate font-semibold text-[--color-blue-bright] underline decoration-transparent transition hover:decoration-current"
+                              title={sourceLabel(source)}
+                            >
+                              {sourceLabel(source)}
+                            </a>
+                          </div>
+                          <div className="col-span-3 flex min-w-0 items-center gap-2 font-mono text-[13px]">
+                            <Globe size={14} className="shrink-0 text-[--color-muted]" />
+                            <span className="truncate text-[--color-muted]">{source.domain}</span>
                           </div>
                           <div
-                            className={`text-[12px] font-semibold ${
+                            className={`col-span-2 text-[12px] font-semibold ${
                               source.match_percent >= 90
                                 ? 'text-red-400'
                                 : source.match_percent >= 70
@@ -979,20 +1011,16 @@ function App() {
                           >
                             {source.match_percent}%
                           </div>
-                          <div>
-                            <span
-                              className={`rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-widest ${sourceBadgeClass(
-                                source.classification,
-                              )}`}
+                          <div className="col-span-3">
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block truncate text-[11px] font-mono text-[--color-blue-bright] underline decoration-transparent transition hover:decoration-current"
+                              title={source.url}
                             >
-                              {source.classification}
-                            </span>
-                          </div>
-                          <div className="text-[12px] text-[--color-muted]">
-                            {source.words_matched}
-                          </div>
-                          <div className="font-mono text-[12px] text-[--color-muted]">
-                            {source.authority ?? '—'}
+                              {source.url}
+                            </a>
                           </div>
                         </motion.div>
                       ))}
@@ -1056,111 +1084,57 @@ function App() {
             </div>
           )}
 
-          {activeTab === 'comparison' && (
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-4 border-b border-[--color-border] pb-3 text-[11px] font-mono uppercase tracking-[0.15em] text-[--color-muted]">
-                <div>Original Content</div>
-                <div>Matched Content</div>
-              </div>
-              {topEvidence ? (
-                <div className="mt-4 space-y-4">
-                  {(topEvidence.matched_paragraphs.length > 0
-                    ? topEvidence.matched_paragraphs.map((entry, index) => ({
-                        original: entry.original_text,
-                        matched: entry.candidate_text,
-                        matchType: entry.match_type,
-                        key: `${entry.match_type}-${index}`,
-                      }))
-                    : topEvidence.matched_sentences.map((entry, index) => ({
-                        original: entry.original_text,
-                        matched: entry.candidate_text,
-                        matchType: entry.match_type,
-                        key: `${entry.match_type}-${index}`,
-                      }))
-                  ).map((entry: ComparisonRow) => (
-                    <div key={entry.key} className="grid grid-cols-2 gap-4">
-                      <div
-                        className={`rounded-r px-3 py-2 text-[13px] leading-[1.65] ${
-                          entry.matchType === 'exact'
-                            ? 'border-l-2 border-red-500 bg-red-500/10 text-[--color-text]'
-                            : entry.matchType === 'mixed' || entry.matchType === 'semantic'
-                              ? 'border-l-2 border-yellow-500/70 bg-yellow-500/10 text-[--color-text]'
-                              : 'border-l-2 border-[--color-blue] bg-[--color-blue]/10 text-[--color-text]'
-                        }`}
-                      >
-                        {entry.original}
-                      </div>
-                      <div
-                        className={`rounded-r px-3 py-2 text-[13px] leading-[1.65] ${
-                          entry.matchType === 'exact'
-                            ? 'border-l-2 border-red-500 bg-red-500/10 text-[--color-text]'
-                            : entry.matchType === 'mixed' || entry.matchType === 'semantic'
-                              ? 'border-l-2 border-yellow-500/70 bg-yellow-500/10 text-[--color-text]'
-                              : 'border-l-2 border-dashed border-[--color-border] text-[--color-muted]'
-                        }`}
-                      >
-                        {entry.matched}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-xl border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-6 text-[13px] text-[--color-muted]">
-                  Run a scan to see backend evidence comparisons.
-                </div>
-              )}
-              <div className="mt-6 flex flex-wrap gap-4 text-[11px] font-mono uppercase tracking-[0.12em] text-[--color-muted]">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-red-400" /> Exact Match
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-yellow-400" /> Modified
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[--color-blue]" /> Original Only
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'history' && (
+          {activeTab === 'dmca' && (
             <div className="p-6">
               {liveScan ? (
                 <div className="space-y-4">
-                  <div className="flex flex-col gap-4 border-b border-[--color-border] py-5 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-3">
-                      <FileText size={18} className="text-[--color-muted]" />
-                      <div>
-                        <div className="text-[14px] font-medium text-white">
-                          {liveScan.discovery.original_title ?? 'Current Scan'}
-                        </div>
-                        <div className="text-[11px] font-mono text-[--color-muted]">
-                          {liveScan.discovery.request_id}
-                        </div>
-                      </div>
+                  <div className="rounded-xl border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-5">
+                    <div className="text-[11px] font-mono uppercase tracking-[0.15em] text-[--color-blue]">
+                      DMCA Notice
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="h-1.5 w-32 rounded-full bg-[--color-border]">
-                        <div
-                          className={`h-full rounded-full ${
-                            displayResults.similarity >= 90
-                              ? 'bg-red-500'
-                              : displayResults.similarity >= 70
-                                ? 'bg-orange-500'
-                                : displayResults.similarity >= 40
-                                  ? 'bg-yellow-500'
-                                  : 'bg-green-500'
-                          }`}
-                          style={{ width: `${displayResults.similarity.toFixed(1)}%` }}
-                        />
+                    {dmcaNoticeText ? (
+                      <>
+                        <div className="mt-2 text-[13px] text-[--color-muted]">
+                          Review and copy the backend-generated notice before sending.
+                        </div>
+                        <pre className="mt-4 max-h-96 overflow-auto rounded-lg border border-[--color-border] bg-[rgba(5,7,15,0.8)] p-4 text-[12px] leading-[1.6] text-[--color-text]">
+                          {dmcaNoticeText}
+                        </pre>
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyDmca()}
+                            disabled={!dmcaNoticeText}
+                            className={`rounded-md px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] text-white transition ${
+                              dmcaNoticeText
+                                ? 'bg-[--color-blue] hover:bg-[--color-blue-bright]'
+                                : 'cursor-not-allowed bg-[--color-border] text-[--color-muted]'
+                            }`}
+                          >
+                            Copy Notice
+                          </button>
+                          {matchedSources[0] && (
+                            <a
+                              href={matchedSources[0].url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-md border border-[--color-border] px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] text-[--color-muted] transition hover:border-white/20 hover:text-white"
+                            >
+                              Open Top Matched Source
+                            </a>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-4 rounded-lg border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-4 text-[13px] text-[--color-muted]">
+                        No DMCA notice was returned for this scan.
                       </div>
-                      <RiskBadge level={displayResults.riskLevel} />
-                    </div>
+                    )}
                   </div>
                 </div>
               ) : (
                 <div className="rounded-xl border border-[--color-border] bg-[rgba(255,255,255,0.02)] p-6 text-[13px] text-[--color-muted]">
-                  No scan history is loaded yet. Run an analysis to create the first backend-backed result.
+                  Run a new scan to prepare DMCA actions.
                 </div>
               )}
             </div>

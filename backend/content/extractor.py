@@ -14,6 +14,7 @@ from datetime import date, datetime
 from typing import Literal
 
 import trafilatura
+from trafilatura.metadata import extract_metadata
 from pydantic import BaseModel, Field
 
 from backend.core.config import ContentExtractionSettings
@@ -301,13 +302,15 @@ def _do_extract(url: str, cfg: ContentExtractorConfig) -> ExtractionResult:
         )
 
     data, extracted_text = _coerce_trafilatura_result(result)
+    metadata = extract_metadata(downloaded, default_url=url)
+    canonical_url = getattr(metadata, "url", None) or url
 
     title = _norm(data.get("title")) if data.get("title") else None
     text = _norm(data.get("text") or extracted_text) or ""
     text_length = len(text.split())
 
     article = ExtractedArticle(
-        url=url,
+        url=canonical_url,
         title=title,
         text=text,
         text_length=text_length,
@@ -325,7 +328,7 @@ def _do_extract(url: str, cfg: ContentExtractorConfig) -> ExtractionResult:
         status = "success"
 
     return ExtractionResult(
-        url=url,
+        url=canonical_url,
         article=article,
         status=status,
         error_message=None,

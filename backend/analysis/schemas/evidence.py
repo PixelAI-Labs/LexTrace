@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -51,6 +52,10 @@ class MatchedSentence(BaseModel):
     match_type: Literal["exact", "fuzzy", "semantic"] = Field(
         ...,
         description="Primary matching strategy that produced this sentence match.",
+    )
+    highlight_class: Literal["copied", "partial", "unique"] = Field(
+        default="partial",
+        description="Highlight class for UI rendering.",
     )
 
 
@@ -103,12 +108,18 @@ class MatchedParagraph(BaseModel):
         default_factory=list,
         description="Sentence-level matches contained within the paragraph.",
     )
+    highlight_class: Literal["copied", "partial", "unique"] = Field(
+        default="partial",
+        description="Highlight class for UI rendering.",
+    )
 
 
 class EvidenceItem(BaseModel):
     """Evidence for a single candidate article."""
 
+    original_url: str | None = Field(default=None, description="Canonical URL of the original article when available.")
     candidate_url: str = Field(..., description="Candidate article URL.")
+    detected_url: str = Field(..., description="Detected URL for the matching source.")
     candidate_title: str | None = Field(default=None, description="Candidate article title, if available.")
     domain: str = Field(..., description="Root domain of the candidate URL.")
     similarity_score: float = Field(
@@ -145,6 +156,11 @@ class EvidenceItem(BaseModel):
 class EvidenceSummary(BaseModel):
     """Summary of evidence across all candidates."""
 
+    original_url: str | None = Field(default=None, description="Canonical URL of the original article when available.")
+    scan_timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="Timestamp for when the scan evidence snapshot was created.",
+    )
     total_candidates: int = Field(
         ...,
         ge=0,

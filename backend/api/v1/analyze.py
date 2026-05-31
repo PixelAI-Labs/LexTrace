@@ -44,9 +44,12 @@ def analyze(
     evidence_items: list[EvidenceItem] = []
 
     for candidate in body.candidate_articles[: options.max_candidates]:
-        outcome = analyzer_instance.analyze(body.original_article, candidate)
+        outcome = analyzer_instance.analyze(body.original_article, candidate, body.original_url)
         results.append(outcome.analysis)
         evidence_items.append(outcome.evidence)
+
+    results.sort(key=lambda item: item.similarity_score, reverse=True)
+    evidence_items.sort(key=lambda item: item.similarity_score, reverse=True)
 
     flagged_results = [
         result for result in results if result.similarity_score >= options.min_similarity
@@ -76,7 +79,12 @@ def analyze(
             items=[_top_item] if _top_item else [],
         )
         sim_result = SimilarityResult(
-            strategy=SimilarityStrategy.fuzzy,
+            strategy=SimilarityStrategy.hybrid,
+            overall_similarity=top.overall_similarity,
+            exact_match_score=top.exact_match_score,
+            paragraph_match_score=top.paragraph_match_score,
+            ngram_score=top.ngram_score,
+            embedding_score=top.embedding_score,
             similarity_score=top.similarity_score,
             copied_percentage=top.copied_percentage,
             matched_paragraphs=top_evidence.total_matched_paragraphs,

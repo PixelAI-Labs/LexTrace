@@ -124,7 +124,7 @@ All `whileInView` animations use `viewport={{ once: true, margin: "-80px" }}`.
 ## STATE
 
 ```tsx
-const [activeTab, setActiveTab] = useState<'analysis' | 'discovery' | 'evidence' | 'history'>('analysis');
+const [activeTab, setActiveTab] = useState<'analysis' | 'discovery' | 'dmca'>('analysis');
 const [scanProgress, setScanProgress] = useState(0); // 0–100, drives the animated scan bar
 const [showScanResult, setShowScanResult] = useState(false);
 const [inputText, setInputText] = useState('');
@@ -154,31 +154,6 @@ const sources = [
   { url: 'newsaggregator.io', match: 84, type: 'Modified Copy', discovered: '1d ago', domain_authority: 31 },
   { url: 'mirror-posts.xyz', match: 79, type: 'Partial Copy', discovered: '2d ago', domain_authority: 9 },
   { url: 'repost-hub.co', match: 71, type: 'Partial Copy', discovered: '3d ago', domain_authority: 14 },
-];
-
-const scanHistory = [
-  { title: 'Q4 Earnings Analysis', date: 'May 28, 2026', similarity: 94, matches: 12, risk: 'Critical' },
-  { title: 'AI Industry Report 2026', date: 'May 25, 2026', similarity: 67, matches: 5, risk: 'High' },
-  { title: 'Product Launch Announcement', date: 'May 22, 2026', similarity: 31, matches: 2, risk: 'Medium' },
-  { title: 'Company Blog: AI Ethics', date: 'May 18, 2026', similarity: 12, matches: 0, risk: 'Low' },
-];
-
-const comparisonParagraphs = [
-  {
-    original: "The company reported record-breaking revenue of $4.2 billion in the fourth quarter, surpassing analyst expectations by a significant margin.",
-    matched: "The company reported record-breaking revenue of $4.2 billion in Q4, surpassing analyst expectations by a significant margin.",
-    matchType: 'exact' // 'exact' | 'modified' | 'original-only'
-  },
-  {
-    original: "CEO Jane Smith attributed the growth to aggressive expansion into Asian markets and a renewed focus on enterprise customers.",
-    matched: "CEO Jane Smith attributed growth to aggressive expansion in Asian markets and renewed focus on enterprise clients.",
-    matchType: 'modified'
-  },
-  {
-    original: "The board approved a $500 million share buyback program, signaling confidence in the company's long-term trajectory.",
-    matched: "The board approved a $500 million share buyback program, signaling strong confidence in the company's long-term trajectory.",
-    matchType: 'modified'
-  }
 ];
 ```
 
@@ -352,7 +327,7 @@ Six cards. Each card:
 
 3. Icon: `FileText` / Title: `"Evidence Reports"` / Desc: `"Generate professional PDF reports with matched excerpts, screenshots, timestamps, and legal-grade evidence packages."` / Tag: `"EXPORT READY"`
 
-4. Icon: `GitCompare` / Title: `"Content Comparison"` / Desc: `"Side-by-side diff view highlights exact matches, rewritten sections, and added content with color-coded precision."` / Tag: `"VISUAL DIFF"`
+4. Icon: `Mail` / Title: `"DMCA Actions"` / Desc: `"Prepare takedown-ready notices instantly, copy legal text, and open top matched sources to file requests quickly."` / Tag: `"TAKEDOWN READY"`
 
 5. Icon: `ShieldAlert` / Title: `"Risk Scoring"` / Desc: `"AI assigns Low / Medium / High / Critical risk levels based on similarity, domain authority, and copy depth."` / Tag: `"RISK INTEL"`
 
@@ -404,7 +379,7 @@ Container: `relative w-full py-32 px-6 md:px-12`
 
 **Dashboard top bar:**
 - `px-6 py-3 border-b border-[--color-border] flex items-center justify-between`
-- Left: Tab row — four tabs: `"Similarity Analysis"`, `"Source Discovery"`, `"Comparison"`, `"Scan History"`. Active: `text-white border-b-2 border-[--color-blue]`. Inactive: `text-[--color-muted] hover:text-white`. `text-[12px] font-mono tracking-[0.1em] pb-3 gap-6`.
+- Left: Tab row — three tabs: `"New Scan"`, `"Results"`, `"DMCA Actions"`. Active: `text-white border-b-2 border-[--color-blue]`. Inactive: `text-[--color-muted] hover:text-white`. `text-[12px] font-mono tracking-[0.1em] pb-3 gap-6`.
 - Right: `"New Scan"` button — miniature CTA
 
 **TAB: Similarity Analysis** (`activeTab === 'analysis'`)
@@ -429,7 +404,7 @@ Right column (col-span-2): Results panel
 
 All results animate in with `AnimatePresence` + `scaleIn`.
 
-**TAB: Source Discovery** (`activeTab === 'discovery'`)
+**TAB: Results** (`activeTab === 'discovery'`)
 
 Table of discovered sources:
 
@@ -447,28 +422,13 @@ Each source row:
 
 Below table: `"View All 12 Sources →"` link
 
-**TAB: Comparison**
+**TAB: DMCA Actions** (`activeTab === 'dmca'`)
 
-Two-column diff view (`grid grid-cols-2 gap-4`):
-
-Column headers: `"Original Content"` (left) / `"Matched Content"` (right) — `text-[11px] font-mono tracking-[0.15em] uppercase border-b border-[--color-border] pb-3`
-
-For each `comparisonParagraphs` entry, render two paragraph blocks side by side:
-- `matchType === 'exact'`: Both sides `bg-red-500/10 border-l-2 border-red-500 px-3 py-2 rounded-r text-[13px] text-[--color-text] leading-[1.65]`
-- `matchType === 'modified'`: Both sides `bg-yellow-500/8 border-l-2 border-yellow-500/70 px-3 py-2 rounded-r text-[13px]`
-- `matchType === 'original-only'`: Left side blue tint, right side empty with dashed border
-
-Legend below: three color chips with labels — `"Exact Match"` (red), `"Modified"` (yellow), `"Original Only"` (blue)
-
-**TAB: Scan History**
-
-List of past scans:
-
-Each row:
-- `flex items-center justify-between border-b border-[--color-border] py-5`
-- Left: `FileText` icon + title (`text-[14px] font-medium text-white`) + date below (`text-[11px] font-mono text-[--color-muted]`)
-- Center: similarity bar — `w-32 h-1.5 rounded-full bg-[--color-border]`, filled width = similarity%, color depends on risk
-- Right: `RiskBadge` + `"→"` icon
+DMCA action panel:
+- Show backend-generated DMCA notice (preformatted text block) when available.
+- Primary action: `"Copy Notice"` button to copy the generated notice to clipboard.
+- Secondary action: `"Open Top Matched Source"` link to open the strongest offending URL in a new tab.
+- Empty state text: `"Run a new scan to prepare DMCA actions."`
 
 ---
 

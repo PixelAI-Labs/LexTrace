@@ -174,11 +174,12 @@ def _build_candidate(
     if not preview:
         return None
 
-    domain = search_result.domain or _domain_from_url(search_result.url)
+    canonical_url = article.url or search_result.url
+    domain = _domain_from_url(canonical_url) or search_result.domain
 
     return CandidateArticle(
         rank=rank,
-        url=search_result.url,
+        url=canonical_url,
         domain=domain,
         title=title,
         rank_score=0.0,
